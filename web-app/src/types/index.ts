@@ -21,6 +21,8 @@ export interface User {
   group_code?: string | null;
   level?: string | null;
   department_name?: string | null;
+  pdpa_consented?: number;
+  pdpa_consented_at?: string | null;
 }
 
 export interface Department {
@@ -65,6 +67,9 @@ export interface LeaveRequest {
   course_name?: string | null;
   category: LeaveCategory;
   reason: string;
+  destination_name?: string | null;
+  destination_lat?: number | null;
+  destination_lng?: number | null;
   attachment_path?: string | null;
   leave_date: string;
   allowed_start_time: string;
@@ -72,6 +77,13 @@ export interface LeaveRequest {
   current_step: number;
   overall_status: LeaveStatus;
   
+  // GPS Destination Check-in
+  checkin_lat?: number | null;
+  checkin_lng?: number | null;
+  checkin_at?: string | null;
+  checkin_distance_m?: number | null;
+  checkin_verified?: number;
+
   step1_teacher_id?: string | null;
   step1_status?: string | null;
   step1_remark?: string | null;
@@ -109,6 +121,8 @@ export interface GateExitLog {
   student_id?: string | null;
   student_name?: string | null;
   direction: 'exit' | 'return';
+  gps_lat?: number | null;
+  gps_lng?: number | null;
   similarity_score?: number | null;
   snapshot_image_path?: string | null;
   trigger_type: 'ai_auto' | 'guard_manual';

@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT,
     avatar_url TEXT,
     push_subscription TEXT,
+    pdpa_consented INTEGER NOT NULL DEFAULT 0,
+    pdpa_consented_at TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
@@ -60,7 +62,7 @@ CREATE TABLE IF NOT EXISTS face_embeddings (
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
--- 6. ใบคำร้องขออนุญาตออกนอกสถานศึกษา (5 ขั้นตอน)
+-- 6. ใบคำร้องขออนุญาตออกนอกสถานศึกษา (5 ขั้นตอน + พิกัด GPS Destination Check-in)
 CREATE TABLE IF NOT EXISTS leave_requests (
     id TEXT PRIMARY KEY,
     request_code TEXT NOT NULL UNIQUE,
@@ -68,6 +70,9 @@ CREATE TABLE IF NOT EXISTS leave_requests (
     course_id TEXT REFERENCES courses_schedule(id),
     category TEXT NOT NULL CHECK(category IN ('medical', 'personal', 'department', 'parent_pickup')),
     reason TEXT NOT NULL,
+    destination_name TEXT,
+    destination_lat REAL,
+    destination_lng REAL,
     attachment_path TEXT,
     leave_date TEXT NOT NULL,
     allowed_start_time TEXT NOT NULL,
@@ -75,6 +80,14 @@ CREATE TABLE IF NOT EXISTS leave_requests (
     current_step INTEGER NOT NULL DEFAULT 1 CHECK(current_step BETWEEN 1 AND 6),
     overall_status TEXT NOT NULL DEFAULT 'pending' CHECK(overall_status IN ('pending', 'approved', 'rejected', 'completed_exit', 'returned', 'expired')),
     
+    -- GPS Destination Check-in
+    checkin_lat REAL,
+    checkin_lng REAL,
+    checkin_at TEXT,
+    checkin_distance_m REAL,
+    checkin_verified INTEGER NOT NULL DEFAULT 0,
+
+    -- 5-Tier Approval Steps
     step1_teacher_id TEXT REFERENCES users(id),
     step1_status TEXT DEFAULT 'pending' CHECK(step1_status IN ('pending', 'approved', 'rejected')),
     step1_remark TEXT,
@@ -111,6 +124,8 @@ CREATE TABLE IF NOT EXISTS gate_exit_logs (
     request_id TEXT REFERENCES leave_requests(id),
     student_id TEXT REFERENCES users(id),
     direction TEXT NOT NULL CHECK(direction IN ('exit', 'return')),
+    gps_lat REAL,
+    gps_lng REAL,
     similarity_score REAL,
     snapshot_image_path TEXT,
     trigger_type TEXT NOT NULL DEFAULT 'ai_auto' CHECK(trigger_type IN ('ai_auto', 'guard_manual')),
