@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="520" viewBox="0 0 400 520" fill="none">
+  <!-- Background -->
+  <rect width="400" height="520" rx="20" fill="#7289DA" fill-opacity="0.15"/>
+  <rect width="400" height="520" rx="20" fill="#8490A5"/>
+
+  <!-- Top App Bar (LINE Style) -->
+  <rect width="400" height="65" fill="#202A36"/>
+  <circle cx="35" cy="33" r="18" fill="#F472B6"/>
+  <text x="35" y="38" font-family="system-ui, sans-serif" font-size="14" font-weight="bold" fill="#FFFFFF" text-anchor="middle">แม่</text>
+  <text x="65" y="32" font-family="system-ui, sans-serif" font-size="15" font-weight="bold" fill="#FFFFFF">คุณแม่ (สุภาภรณ์)</text>
+  <text x="65" y="48" font-family="system-ui, sans-serif" font-size="11" fill="#4ADE80">● ใช้งานเมื่อสักครู่</text>
+
+  <!-- Date Chip -->
+  <rect x="150" y="80" width="100" height="22" rx="11" fill="#000000" fill-opacity="0.25"/>
+  <text x="200" y="95" font-family="system-ui, sans-serif" font-size="11" fill="#FFFFFF" text-anchor="middle">วันนี้</text>
+
+  <!-- Message 1 from Mom -->
+  <g transform="translate(15, 115)">
+    <rect width="260" height="60" rx="14" fill="#FFFFFF"/>
+    <text x="14" y="24" font-family="system-ui, sans-serif" font-size="13" fill="#1E293B">ลูก วันนี้แม่มีธุระด่วนต้องพาไปทำ</text>
+    <text x="14" y="44" font-family="system-ui, sans-serif" font-size="13" fill="#1E293B">บัตรประชาชนใหม่ที่อำเภอนะ</text>
+    <text x="270" y="55" font-family="system-ui, sans-serif" font-size="10" fill="#E2E8F0">11:45</text>
+  </g>
+
+  <!-- Message 2 from Mom -->
+  <g transform="translate(15, 185)">
+    <rect width="280" height="75" rx="14" fill="#FFFFFF"/>
+    <text x="14" y="24" font-family="system-ui, sans-serif" font-size="13" fill="#1E293B">ทำเรื่องขออนุญาตอาจารย์ยังลูก?</text>
+    <text x="14" y="44" font-family="system-ui, sans-serif" font-size="13" fill="#1E293B">บอกว่าแม่อนุญาตให้ออกช่วง</text>
+    <text x="14" y="64" font-family="system-ui, sans-serif" font-size="13" font-weight="bold" fill="#0284C7">13:00 - 15:30 น. นะลูก</text>
+    <text x="290" y="70" font-family="system-ui, sans-serif" font-size="10" fill="#E2E8F0">11:46</text>
+  </g>
+
+  <!-- Message 3 from Student (Me) -->
+  <g transform="translate(130, 275)">
+    <rect width="255" height="55" rx="14" fill="#58E870"/>
+    <text x="14" y="24" font-family="system-ui, sans-serif" font-size="13" fill="#064E3B">กำลังพิมพ์แจ้งน้องเกต AI</text>
+    <text x="14" y="44" font-family="system-ui, sans-serif" font-size="13" fill="#064E3B">ในระบบ Smart Gate ครับแม่</text>
+    <text x="-35" y="50" font-family="system-ui, sans-serif" font-size="10" fill="#E2E8F0">อ่านแล้ว 11:48</text>
+  </g>
+
+  <!-- Message 4 from Mom -->
+  <g transform="translate(15, 345)">
+    <rect width="260" height="55" rx="14" fill="#FFFFFF"/>
+    <text x="14" y="24" font-family="system-ui, sans-serif" font-size="13" fill="#1E293B">จ้ะ เดี๋ยวแม่ขับรถไปจอดรอรับ</text>
+    <text x="14" y="44" font-family="system-ui, sans-serif" font-size="13" fill="#1E293B">ที่ป้อมยามหน้าประตู 1 นะ</text>
+    <text x="270" y="50" font-family="system-ui, sans-serif" font-size="10" fill="#E2E8F0">11:49</text>
+  </g>
+
+  <!-- Verified Badge -->
+  <g transform="translate(30, 430)">
+    <rect width="340" height="40" rx="10" fill="#0F172A" fill-opacity="0.8"/>
+    <text x="170" y="25" font-family="system-ui, sans-serif" font-size="12" font-weight="bold" fill="#38BDF8" text-anchor="middle">✓ ภาพถ่ายหลักฐานแชทยืนยันจากผู้ปกครอง</text>
+  </g>
+</svg>

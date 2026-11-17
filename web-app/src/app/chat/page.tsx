@@ -1,22 +1,38 @@
 'use client';
 
 import React, { useState, useEffect, useRef, Suspense } from 'react';
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
-import { LeaveRequest } from '@/types';
+import Link from 'next/link';
 import {
   ChevronLeft,
-  ScanFace,
-  Paperclip,
-  Send,
-  MapPin,
-  CheckCircle2,
-  Clock,
   Sparkles,
+  Send,
+  Paperclip,
+  CheckCircle2,
   ExternalLink,
-  Bot,
+  ScanFace,
+  Image as ImageIcon,
+  X,
+  FileText,
+  MessageSquare,
+  Building2,
+  Calendar,
+  Clock,
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { LeaveRequest } from '@/types';
+
+export interface ChatSlots {
+  destination_name?: string | null;
+  destination_lat?: number | null;
+  destination_lng?: number | null;
+  category?: 'medical' | 'personal' | 'department' | 'parent_pickup' | null;
+  reason?: string | null;
+  allowed_start_time?: string | null;
+  allowed_end_time?: string | null;
+  attachment_path?: string | null;
+  attachment_prompted?: boolean;
+}
 
 interface ChatMessage {
   id: string;
@@ -24,6 +40,7 @@ interface ChatMessage {
   text?: string;
   time: string;
   poweredBy?: string;
+  attachmentUrl?: string | null;
   requestCard?: LeaveRequest;
   checkinCard?: {
     destination: string;
@@ -44,7 +61,15 @@ function ChatContent() {
   const [latestRequest, setLatestRequest] = useState<LeaveRequest | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState('');
+  
+  // Slot-Filling State
+  const [currentSlots, setCurrentSlots] = useState<ChatSlots>({});
+  const [askAttachmentNow, setAskAttachmentNow] = useState(false);
+  const [selectedAttachmentUrl, setSelectedAttachmentUrl] = useState<string | null>(null);
+  const [previewModalUrl, setPreviewModalUrl] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -52,7 +77,7 @@ function ChatContent() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isSubmitting]);
+  }, [messages, isSubmitting, askAttachmentNow]);
 
   // Load API key from localStorage
   useEffect(() => {
@@ -60,29 +85,38 @@ function ChatContent() {
     if (savedKey) setGeminiApiKey(savedKey);
   }, []);
 
-  // Load existing requests for active student
+  // Fetch initial student state and requests
   useEffect(() => {
     async function loadRequests() {
       try {
         const studentId = user?.id || 'user-stu-akkaracha';
         const res = await fetch(`/api/requests?student_id=${studentId}`);
         const data = await res.json();
+        const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
         if (data.success && data.requests && data.requests.length > 0) {
-          const req = data.requests[0];
+          const req: LeaveRequest = data.requests[0];
           setLatestRequest(req);
 
-          const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           const initialMsgs: ChatMessage[] = [
+            {
+              id: 'msg-welcome',
+              sender: 'bot',
+              text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยอัจฉริยะประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์แจ้งเหตุผล ปลายทาง และเวลาได้เลยครับ',
+              time: req.allowed_start_time || '12:20',
+              poweredBy: 'Google Gemini AI',
+            },
             {
               id: 'msg-1',
               sender: 'student',
-              text: `ขออนุญาตออกนอกสถานศึกษาไป${req.reason} เวลา ${req.allowed_start_time} - ${req.allowed_end_time} น. ครับ (แนบไฟล์เรียบร้อย)`,
+              text: `${req.reason} (สถานที่: ${req.destination_name || 'นอกวิทยาลัย'}) เวลา ${req.allowed_start_time} - ${req.allowed_end_time} น. ครับ`,
               time: req.allowed_start_time || '12:25',
+              attachmentUrl: req.attachment_path || undefined,
             },
             {
               id: 'msg-2',
               sender: 'bot',
-              text: `รับเรื่องเรียบร้อยครับ! ระบบได้สร้างคำร้อง #${req.request_code} และส่งต่อให้ผู้อนุมัติทั้ง 5 ขั้นตอนแล้วครับ`,
+              text: `รับเรื่องเรียบร้อยครับ! ระบบได้ผูกตารางสอนวิชา '${req.course_name || 'การวิเคราะห์ข้อมูล'}' พร้อมสร้างคำร้อง #${req.request_code} และส่งต่อให้ผู้อนุมัติทั้ง 5 ขั้นตอนแล้วครับ`,
               time: nowTime,
               poweredBy: 'Google Gemini AI',
               requestCard: req,
@@ -139,31 +173,81 @@ function ChatContent() {
     }
   }, [categoryParam]);
 
-  // Send request via Gemini AI chat endpoint
-  const handleSend = async (e?: React.FormEvent) => {
+  // Handle File Upload
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      setIsSubmitting(true);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.success && data.fileUrl) {
+        setSelectedAttachmentUrl(data.fileUrl);
+        // Automatically send attached file
+        handleSend(undefined, false, data.fileUrl);
+      } else {
+        alert(data.error || 'อัปโหลดไฟล์ไม่สำเร็จ');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Send request via Gemini AI chat endpoint with Slot-Filling
+  const handleSend = async (
+    e?: React.FormEvent,
+    skipAttachment: boolean = false,
+    overrideAttachmentUrl?: string
+  ) => {
     if (e) e.preventDefault();
-    if (!input.trim() || isSubmitting) return;
 
     const userText = input.trim();
+    const attachUrl = overrideAttachmentUrl !== undefined ? overrideAttachmentUrl : selectedAttachmentUrl;
+
+    if (!userText && !attachUrl && !skipAttachment) return;
+    if (isSubmitting) return;
+
     setInput('');
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     // Append student bubble
+    let bubbleText = userText;
+    if (skipAttachment && !bubbleText) {
+      bubbleText = 'ไม่มีเอกสารแนบครับ (ข้ามขั้นตอนแนบ)';
+    } else if (attachUrl && !bubbleText) {
+      bubbleText = 'แนบเอกสารหลักฐาน / รูปถ่ายแชทผู้ปกครองเรียบร้อยครับ';
+    }
+
     const newStudentMsg: ChatMessage = {
       id: `stu-${Date.now()}`,
       sender: 'student',
-      text: userText,
+      text: bubbleText,
       time: nowTime,
+      attachmentUrl: attachUrl || undefined,
     };
     setMessages((prev) => [...prev, newStudentMsg]);
     setIsSubmitting(true);
+    setAskAttachmentNow(false);
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: userText,
+          message: bubbleText,
+          currentSlots,
+          attachment_url: attachUrl,
+          skip_attachment: skipAttachment,
           apiKey: geminiApiKey,
           student_id: user?.id || 'user-stu-akkaracha',
         }),
@@ -171,8 +255,18 @@ function ChatContent() {
 
       const data = await res.json();
       if (data.success) {
+        if (data.slots) {
+          setCurrentSlots(data.slots);
+        }
+
+        if (data.ask_attachment_now) {
+          setAskAttachmentNow(true);
+        }
+
         if (data.request) {
           setLatestRequest(data.request);
+          setCurrentSlots({}); // reset slots when request completed
+          setSelectedAttachmentUrl(null);
         }
 
         setMessages((prev) => [
@@ -183,6 +277,7 @@ function ChatContent() {
             text: data.reply,
             time: nowTime,
             poweredBy: data.poweredBy,
+            attachmentUrl: data.slots?.attachment_path || undefined,
             requestCard: data.request || undefined,
           },
         ]);
@@ -230,27 +325,29 @@ function ChatContent() {
             },
           },
         ]);
+      } else {
+        alert(data.error || 'ไม่สามารถเช็คอินได้');
       }
     } catch (err) {
-      console.error('GPS Checkin error:', err);
+      console.error(err);
     }
   };
 
-  // Return to college report
+  // Report Return to College
   const handleReturnReport = () => {
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setMessages((prev) => [
       ...prev,
       {
-        id: `return-${Date.now()}`,
+        id: `return-stu-${Date.now()}`,
         sender: 'student',
-        text: 'ตอนนี้ผมเดินทางกลับมาถึงหน้าป้อมยามประตู 1 วิทยาลัยการอาชีพองครักษ์แล้วครับ พร้อมรายงานตัวกลับเข้าวิทยาลัย',
+        text: 'เดินทางกลับมาถึงวิทยาลัยการอาชีพองครักษ์แล้วครับ ขอยืนยันรายงานตัวกลับเข้า',
         time: nowTime,
       },
       {
         id: `return-bot-${Date.now()}`,
         sender: 'bot',
-        text: 'ระบบตรวจสอบพิกัด Geofencing ยืนยันว่าคุณอยู่ในบริเวณวิทยาลัยการอาชีพองครักษ์แล้ว กรุณาสแกนใบหน้าที่กล้องหน้าป้อมยามเพื่อบันทึกเวลากลับและเปิดไม้กั้นครับ',
+        text: 'ระบบตรวจสอบพิกัด GPS: คุณอยู่ในรัศมีวิทยาลัยการอาชีพองครักษ์เรียบร้อยแล้วครับ กรุณาสแกนใบหน้าที่กล้องประตู 1 เพื่อบันทึกเวลากลับเข้าวิทยาลัยและปิดรอบคำร้องครับ',
         time: nowTime,
         poweredBy: 'Google Gemini AI',
       },
@@ -258,55 +355,81 @@ function ChatContent() {
   };
 
   return (
-    <div className="flex flex-col h-screen max-w-md mx-auto bg-[#F4F7FB]">
-      {/* Header (Matching screen-3-chat.png) */}
-      <div className="bg-white px-4 py-3 border-b border-slate-200/80 flex items-center justify-between sticky top-8 z-30 shadow-xs">
-        <div className="flex items-center gap-2.5">
-          <Link href="/" className="p-1 -ml-1 text-slate-700 hover:text-slate-900">
-            <ChevronLeft className="w-6 h-6" />
-          </Link>
-
-          {/* AI Messaging Emblem */}
-          <div className="relative">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-b from-[#00A3FF] to-[#0055B3] p-[2px] flex items-center justify-center shadow-xs">
-              <div className="w-full h-full rounded-full bg-[#03152B] flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-cyan-400" />
-              </div>
+    <div className="flex flex-col h-screen bg-[#F4F7FB] relative">
+      {/* Lightbox Image Preview Modal */}
+      {previewModalUrl && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="relative max-w-lg w-full bg-white rounded-3xl p-4 shadow-2xl">
+            <button
+              onClick={() => setPreviewModalUrl(null)}
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center hover:bg-slate-700 shadow-md"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="rounded-2xl overflow-hidden border border-slate-200">
+              <img
+                src={previewModalUrl}
+                alt="เอกสารหลักฐานแนบ"
+                className="w-full h-auto max-h-[75vh] object-contain bg-slate-100"
+              />
             </div>
-            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#10B981] border-2 border-white"></span>
+            <div className="mt-2.5 text-center">
+              <span className="text-xs font-bold text-slate-800">เอกสารหลักฐาน / รูปภาพแชทผู้ปกครอง</span>
+              <p className="text-[11px] text-slate-500">บันทึกลงในระบบ Smart Gate Pass AI เรียบร้อย</p>
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* Top Header */}
+      <header className="px-4 py-3 bg-[#03152B] text-white flex items-center justify-between sticky top-0 z-30 shadow-sm">
+        <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </Link>
 
           <div>
             <div className="flex items-center gap-1.5">
-              <h2 className="text-sm font-bold text-slate-900 leading-tight">AI Messaging</h2>
-              <span className="text-[10px] text-[#10B981] font-semibold flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]"></span>
-                Online
-              </span>
+              <h1 className="font-bold text-sm tracking-wide">AI Messaging</h1>
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span className="text-[10px] text-emerald-400 font-medium">Online</span>
             </div>
-            <p className="text-[10px] text-slate-400">ระบบขออนุญาต & ไม้กั้น AI (Gemini Powered)</p>
+            <p className="text-[10px] text-slate-300">ระบบขออนุญาต & ไม้กั้น AI (OICEC)</p>
           </div>
         </div>
 
-        {/* Top Right "เปิดไม้กั้น" Button */}
         <Link
           href="/gate"
-          className="px-3 py-1.5 bg-[#EBF3FC] hover:bg-[#DEEEFC] text-[#0066CC] border border-[#B8D7F9] rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs"
+          className="px-3 py-1.5 bg-[#0077D7] hover:bg-[#0066CC] active:scale-95 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 shadow-sm transition-all"
         >
-          <ScanFace className="w-4 h-4 text-[#0066CC]" />
+          <ScanFace className="w-3.5 h-3.5" />
           <span>เปิดไม้กั้น</span>
         </Link>
-      </div>
+      </header>
 
-      {/* Notice Banner */}
-      <div className="px-4 pt-3 pb-1">
-        <div className="bg-white rounded-2xl p-3 border border-slate-100 shadow-2xs text-[11px] text-slate-600 leading-relaxed flex items-center justify-between">
-          <div>
-            <span className="font-bold text-[#0066CC]">น้องเกต AI:</span>{' '}
-            พิมพ์แจ้งเหตุผลการขอออกนอกวิทยาลัยได้ตามสบาย ผมจะช่วยสกัดข้อมูลและยื่นคำร้องให้อัตโนมัติครับ
+      {/* Active Slot-Filling Tracker Banner (If slots partially filled) */}
+      {(currentSlots.destination_name || currentSlots.reason || currentSlots.allowed_start_time) && !latestRequest?.id && (
+        <div className="bg-blue-50 border-b border-blue-200/80 px-4 py-2 flex items-center justify-between text-[11px] animate-fadeIn">
+          <div className="flex items-center gap-2 text-blue-900 font-medium truncate">
+            <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+            <span className="font-bold">กำลังรวบรวมข้อมูลคำขอ:</span>
+            <span>📍 {currentSlots.destination_name || 'รอระบุสถานที่'}</span>
+            <span>• ⏰ {currentSlots.allowed_start_time ? `${currentSlots.allowed_start_time}-${currentSlots.allowed_end_time} น.` : 'รอระบุเวลา'}</span>
           </div>
+          <button
+            onClick={() => {
+              setCurrentSlots({});
+              setAskAttachmentNow(false);
+            }}
+            className="text-[10px] text-blue-600 hover:underline font-semibold shrink-0"
+          >
+            เริ่มใหม่
+          </button>
         </div>
-      </div>
+      )}
 
       {/* Messages Scroll Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
@@ -314,8 +437,26 @@ function ChatContent() {
           if (m.sender === 'student') {
             return (
               <div key={m.id} className="flex flex-col items-end">
-                <div className="max-w-[85%] bg-[#DCE6F2] text-slate-800 text-xs rounded-2xl rounded-tr-xs px-4 py-3 shadow-2xs leading-relaxed">
-                  {m.text}
+                <div className="max-w-[85%] bg-[#DCE6F2] text-slate-800 text-xs rounded-2xl rounded-tr-xs px-4 py-3 shadow-2xs leading-relaxed space-y-2">
+                  <div>{m.text}</div>
+                  
+                  {/* Student Attached Image Bubble */}
+                  {m.attachmentUrl && (
+                    <div
+                      onClick={() => setPreviewModalUrl(m.attachmentUrl!)}
+                      className="cursor-pointer group relative rounded-xl overflow-hidden border border-slate-300 bg-white/70 p-1.5 transition-all hover:shadow-md"
+                    >
+                      <div className="flex items-center gap-1.5 mb-1 text-[10px] text-blue-700 font-semibold">
+                        <ImageIcon className="w-3.5 h-3.5" />
+                        <span>หลักฐานที่แนบ (คลิกเพื่อดูรูปเต็ม)</span>
+                      </div>
+                      <img
+                        src={m.attachmentUrl}
+                        alt="ไฟล์แนบ"
+                        className="w-full max-h-36 object-contain rounded-lg bg-slate-50"
+                      />
+                    </div>
+                  )}
                 </div>
                 <span className="text-[10px] text-slate-400 mt-1 mr-1">{m.time} • ส่งแล้ว</span>
               </div>
@@ -344,8 +485,8 @@ function ChatContent() {
 
                   {/* 5-Tier Request Card if created */}
                   {m.requestCard && (
-                    <div className="bg-[#0066CC] text-white rounded-3xl p-4 shadow-md w-full">
-                      <div className="flex items-center justify-between text-xs mb-2">
+                    <div className="bg-[#0066CC] text-white rounded-3xl p-4 shadow-md w-full space-y-3">
+                      <div className="flex items-center justify-between text-xs">
                         <span className="bg-white/20 backdrop-blur-md px-2.5 py-0.5 rounded-full text-[11px] font-semibold">
                           {m.requestCard.overall_status === 'approved'
                             ? 'อนุมัติคำขอแล้ว'
@@ -354,17 +495,47 @@ function ChatContent() {
                         <span className="font-mono text-white/80 text-[11px]">{m.requestCard.request_code}</span>
                       </div>
 
-                      <p className="text-xs text-blue-50 leading-relaxed mb-3">
+                      <p className="text-xs text-blue-50 leading-relaxed">
                         บันทึกคำร้องเรียบร้อย ส่งเรื่องต่อไปยังครูประจำวิชาและครูที่ปรึกษา (แผนกเทคโนโลยีธุรกิจดิจิทัล) แล้วครับ
                       </p>
 
-                      <div className="bg-white/10 rounded-2xl p-3 border border-white/15">
-                        <div className="flex items-center justify-between text-xs text-white/90 mb-2">
+                      {/* Display attached image thumbnail in Card if exists */}
+                      {m.requestCard.attachment_path && (
+                        <div
+                          onClick={() => setPreviewModalUrl(m.requestCard!.attachment_path!)}
+                          className="bg-white/10 hover:bg-white/15 cursor-pointer rounded-2xl p-2.5 border border-white/20 transition-all flex items-center gap-3"
+                        >
+                          <img
+                            src={m.requestCard.attachment_path}
+                            alt="รูปหลักฐานที่แนบ"
+                            className="w-12 h-12 object-cover rounded-xl bg-white shrink-0 border border-white/30"
+                          />
+                          <div className="text-[11px] text-white leading-tight">
+                            <span className="font-bold flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
+                              <span>แนบหลักฐานเรียบร้อย</span>
+                            </span>
+                            <span className="text-[10px] text-white/80 block mt-0.5">
+                              คลิกเพื่อเปิดดูภาพเต็มที่ส่งให้ครูผู้ตรวจ
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="bg-white/10 rounded-2xl p-3 border border-white/15 space-y-2">
+                        <div className="flex items-center justify-between text-xs text-white/90">
                           <span className="text-[11px]">เวลานัดหมายออก-เข้า:</span>
                           <span className="font-bold">
                             {m.requestCard.allowed_start_time} - {m.requestCard.allowed_end_time} น.
                           </span>
                         </div>
+
+                        {m.requestCard.course_name && (
+                          <div className="text-[10px] text-blue-100 flex items-center gap-1">
+                            <span>📚 คาบเรียน:</span>
+                            <span className="font-semibold">{m.requestCard.course_name}</span>
+                          </div>
+                        )}
 
                         <Link
                           href="/gate"
@@ -424,6 +595,56 @@ function ChatContent() {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Special Slot-Filling Prompt: Attachment Options Bar */}
+      {askAttachmentNow && (
+        <div className="mx-3 mb-2 p-3 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm animate-fadeIn space-y-2">
+          <div className="flex items-center justify-between text-xs font-bold text-amber-900">
+            <span className="flex items-center gap-1.5">
+              <Paperclip className="w-4 h-4 text-amber-700" />
+              <span>แนบหลักฐาน (ถ้ามี) หรือกดส่งคำขอได้เลย:</span>
+            </span>
+            <span className="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full font-semibold">
+              ขั้นตอนสุดท้าย
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-1.5 text-xs">
+            {/* Quick Demo Attachment 1 */}
+            <button
+              onClick={() => handleSend(undefined, false, '/uploads/attachments/doctor-note.svg')}
+              className="p-2 bg-white hover:bg-amber-100/70 border border-amber-200 rounded-xl text-left transition-all flex items-center gap-2 text-slate-800"
+            >
+              <span className="text-base">🏥</span>
+              <div className="leading-tight truncate">
+                <span className="font-bold text-[11px] block">แนบใบนัดแพทย์</span>
+                <span className="text-[9px] text-slate-400">รพ.องครักษ์ (ตัวอย่าง)</span>
+              </div>
+            </button>
+
+            {/* Quick Demo Attachment 2 */}
+            <button
+              onClick={() => handleSend(undefined, false, '/uploads/attachments/parent-chat.svg')}
+              className="p-2 bg-white hover:bg-amber-100/70 border border-amber-200 rounded-xl text-left transition-all flex items-center gap-2 text-slate-800"
+            >
+              <span className="text-base">💬</span>
+              <div className="leading-tight truncate">
+                <span className="font-bold text-[11px] block">แนบแชทผู้ปกครอง</span>
+                <span className="text-[9px] text-slate-400">รูปยืนยันจากแม่ (ตัวอย่าง)</span>
+              </div>
+            </button>
+          </div>
+
+          {/* Skip Button (ไม่มีเอกสารแนบ) */}
+          <button
+            onClick={() => handleSend(undefined, true)}
+            className="w-full py-2 bg-amber-600 hover:bg-amber-700 active:scale-[0.99] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>ไม่มีเอกสารแนบ — ส่งคำขออนุมัติทันที</span>
+          </button>
+        </div>
+      )}
+
       {/* Quick Chips Row (Above Input Bar) */}
       <div className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-[#F4F7FB]">
         <Link
@@ -441,7 +662,7 @@ function ChatContent() {
         </button>
 
         <button
-          onClick={() => setInput('ขออนุญาตไปพบแพทย์ตามนัดที่ รพ.องครักษ์ บ่ายนี้ครับ')}
+          onClick={() => setInput('ขอไปพบแพทย์ตามนัดที่ รพ.องครักษ์ เวลา 13:00 - 15:30 น.')}
           className="px-3 py-1.5 bg-white border border-slate-200/80 rounded-full text-[11px] font-medium text-slate-700 whitespace-nowrap shadow-2xs hover:bg-slate-50 flex items-center gap-1"
         >
           <span>🏥 ขอไปพบแพทย์</span>
@@ -462,14 +683,23 @@ function ChatContent() {
         </button>
       </div>
 
+      {/* Hidden File Input for Real File Upload */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        accept="image/*"
+        className="hidden"
+      />
+
       {/* Bottom Input Field Bar */}
       <div className="p-3 bg-white border-t border-slate-200/80 sticky bottom-16 z-30">
-        <form onSubmit={handleSend} className="flex items-center gap-2">
+        <form onSubmit={(e) => handleSend(e, false)} className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => alert('จำลองการแนบไฟล์หลักฐาน เช่น ใบนัดแพทย์ หรือหนังสือขออนุญาต')}
-            className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
-            title="แนบไฟล์หลักฐาน"
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2 text-slate-500 hover:text-[#0066CC] transition-colors relative"
+            title="แนบรูปถ่ายใบนัดแพทย์หรือแชทผู้ปกครองจากเครื่อง"
           >
             <Paperclip className="w-5 h-5 -rotate-45" />
           </button>
@@ -478,7 +708,7 @@ function ChatContent() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="พิมพ์คุยกับน้องเกต AI ได้อย่างอิสระ..."
+            placeholder="พิมพ์คุยกับน้องเกต AI เช่น ขอออกไปไหน เวลาเท่าไร..."
             className="flex-1 py-2.5 px-4 bg-slate-100 border border-slate-200/60 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC]/20 focus:border-[#0066CC] transition-all"
           />
 

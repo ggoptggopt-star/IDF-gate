@@ -17,6 +17,8 @@ import {
   FileText,
   User,
   ArrowRight,
+  Eye,
+  X,
 } from 'lucide-react';
 
 export default function ApproverDashboard() {
@@ -26,6 +28,7 @@ export default function ApproverDashboard() {
   const [remarks, setRemarks] = useState<{ [id: string]: string }>({});
   const [loading, setLoading] = useState(true);
   const [actionSuccessMsg, setActionSuccessMsg] = useState('');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const fetchRequests = async () => {
     try {
@@ -118,6 +121,30 @@ export default function ApproverDashboard() {
 
   return (
     <div className="space-y-4">
+      {/* Lightbox Image Preview Modal */}
+      {selectedImage && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="relative max-w-lg w-full bg-white rounded-3xl p-4 shadow-2xl">
+            <button
+              onClick={() => setSelectedImage(null)}
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center hover:bg-slate-700 shadow-md"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="rounded-2xl overflow-hidden border border-slate-200">
+              <img
+                src={selectedImage}
+                alt="เอกสารหลักฐานแนบ"
+                className="w-full h-auto max-h-[75vh] object-contain bg-slate-100"
+              />
+            </div>
+            <div className="mt-2.5 text-center">
+              <span className="text-xs font-bold text-slate-800">เอกสารหลักฐานประกอบการพิจารณา (ใบนัดแพทย์ / แชทผู้ปกครอง)</span>
+              <p className="text-[11px] text-slate-500">ตรวจสอบโดยคณะกรรมการและผู้อนุมัติ วก.องครักษ์</p>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header Banner */}
       <div className="bg-slate-900 text-white rounded-3xl p-5 shadow-sm border border-slate-800">
         <div className="flex items-center justify-between">
@@ -279,6 +306,31 @@ export default function ApproverDashboard() {
                     )}
                   </div>
                 </div>
+
+                {/* Evidence Attachment Box */}
+                {r.attachment_path && (
+                  <div className="bg-blue-50/70 border border-blue-200/80 rounded-2xl p-3 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2.5">
+                      <img
+                        src={r.attachment_path}
+                        alt="เอกสารหลักฐานแนบ"
+                        onClick={() => setSelectedImage(r.attachment_path!)}
+                        className="w-12 h-12 object-cover rounded-xl bg-white border border-blue-200 cursor-pointer hover:scale-105 transition-transform shrink-0"
+                      />
+                      <div>
+                        <span className="font-bold text-blue-900 block">เอกสารหลักฐานแนบ:</span>
+                        <span className="text-[11px] text-slate-600 block">ใบนัดแพทย์ หรือ รูปถ่ายแชทผู้ปกครอง</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setSelectedImage(r.attachment_path!)}
+                      className="px-2.5 py-1.5 bg-white hover:bg-blue-100 text-[#0066CC] border border-blue-200 rounded-xl text-[11px] font-semibold flex items-center gap-1 transition-all"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>ดูรูปเต็ม</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* GPS Destination Check-in Verification Box */}
                 {r.destination_name && (
