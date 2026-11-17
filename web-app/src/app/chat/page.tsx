@@ -23,6 +23,8 @@ import { useAuth } from '@/context/AuthContext';
 import { LeaveRequest } from '@/types';
 
 export interface ChatSlots {
+  leave_date?: string | null;
+  leave_date_text?: string | null;
   destination_name?: string | null;
   destination_lat?: number | null;
   destination_lng?: number | null;
@@ -64,6 +66,7 @@ function ChatContent() {
   
   // Slot-Filling State
   const [currentSlots, setCurrentSlots] = useState<ChatSlots>({});
+  const [missingSlots, setMissingSlots] = useState<string[]>([]);
   const [askAttachmentNow, setAskAttachmentNow] = useState(false);
   const [selectedAttachmentUrl, setSelectedAttachmentUrl] = useState<string | null>(null);
   const [previewModalUrl, setPreviewModalUrl] = useState<string | null>(null);
@@ -77,7 +80,7 @@ function ChatContent() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isSubmitting, askAttachmentNow]);
+  }, [messages, isSubmitting, askAttachmentNow, missingSlots]);
 
   // Load API key from localStorage
   useEffect(() => {
@@ -102,14 +105,14 @@ function ChatContent() {
             {
               id: 'msg-welcome',
               sender: 'bot',
-              text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยอัจฉริยะประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์แจ้งเหตุผล ปลายทาง และเวลาได้เลยครับ',
+              text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยอัจฉริยะประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์บอกสถานที่ วันที่ และเวลาได้เลยครับ (เช่น "ขอไปหาหมอที่ รพ.องครักษ์ ตอนเที่ยงวันนี้ครับ")',
               time: req.allowed_start_time || '12:20',
               poweredBy: 'Google Gemini AI',
             },
             {
               id: 'msg-1',
               sender: 'student',
-              text: `${req.reason} (สถานที่: ${req.destination_name || 'นอกวิทยาลัย'}) เวลา ${req.allowed_start_time} - ${req.allowed_end_time} น. ครับ`,
+              text: `${req.reason} (สถานที่: ${req.destination_name || 'นอกวิทยาลัย'}) วันที่ ${req.leave_date} เวลา ${req.allowed_start_time} - ${req.allowed_end_time} น. ครับ`,
               time: req.allowed_start_time || '12:25',
               attachmentUrl: req.attachment_path || undefined,
             },
@@ -144,7 +147,7 @@ function ChatContent() {
             {
               id: 'msg-welcome',
               sender: 'bot',
-              text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์แจ้งเหตุผล สถานที่ปลายทาง และเวลาที่ต้องการออกได้เลยครับ',
+              text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์แจ้งเหตุผล สถานที่ วันที่ และเวลาได้เลยครับ (เช่น "ขอไปหาหมอรพ.องครักษ์ตอนเทียง")',
               time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               poweredBy: 'Google Gemini AI',
             },
@@ -162,13 +165,13 @@ function ChatContent() {
   useEffect(() => {
     if (categoryParam) {
       if (categoryParam === 'medical') {
-        setInput('ขอไปพบแพทย์ตามนัดที่ โรงพยาบาลองครักษ์ เวลา 13:00 - 15:30 น.');
+        setInput('ขอไปพบแพทย์ตามนัดที่ โรงพยาบาลองครักษ์ ตอนเที่ยงวันนี้ครับ');
       } else if (categoryParam === 'personal') {
-        setInput('มีธุระส่วนตัวจำเป็นที่ ที่ว่าการอำเภอองครักษ์ เวลา 13:30 - 16:00 น.');
+        setInput('มีธุระส่วนตัวจำเป็นที่ ที่ว่าการอำเภอองครักษ์ ช่วงบ่ายนี้ครับ');
       } else if (categoryParam === 'department') {
         setInput('ไปจัดเตรียมสถานที่และอุปกรณ์นำเสนอโครงงานที่หอประชุมใหญ่');
       } else if (categoryParam === 'parent_pickup') {
-        setInput('ผู้ปกครองเดินทางมารับกลับบ้านก่อนเวลา');
+        setInput('ผู้ปกครองเดินทางมารับกลับบ้านก่อนเวลาตอนเที่ยง');
       }
     }
   }, [categoryParam]);
@@ -190,7 +193,6 @@ function ChatContent() {
       const data = await res.json();
       if (data.success && data.fileUrl) {
         setSelectedAttachmentUrl(data.fileUrl);
-        // Automatically send attached file
         handleSend(undefined, false, data.fileUrl);
       } else {
         alert(data.error || 'อัปโหลดไฟล์ไม่สำเร็จ');
@@ -207,11 +209,12 @@ function ChatContent() {
   const handleSend = async (
     e?: React.FormEvent,
     skipAttachment: boolean = false,
-    overrideAttachmentUrl?: string
+    overrideAttachmentUrl?: string,
+    presetText?: string
   ) => {
     if (e) e.preventDefault();
 
-    const userText = input.trim();
+    const userText = presetText !== undefined ? presetText : input.trim();
     const attachUrl = overrideAttachmentUrl !== undefined ? overrideAttachmentUrl : selectedAttachmentUrl;
 
     if (!userText && !attachUrl && !skipAttachment) return;
@@ -259,13 +262,16 @@ function ChatContent() {
           setCurrentSlots(data.slots);
         }
 
+        setMissingSlots(data.missing_slots || []);
+
         if (data.ask_attachment_now) {
           setAskAttachmentNow(true);
         }
 
         if (data.request) {
           setLatestRequest(data.request);
-          setCurrentSlots({}); // reset slots when request completed
+          setCurrentSlots({}); // reset slots
+          setMissingSlots([]);
           setSelectedAttachmentUrl(null);
         }
 
@@ -411,17 +417,19 @@ function ChatContent() {
       </header>
 
       {/* Active Slot-Filling Tracker Banner (If slots partially filled) */}
-      {(currentSlots.destination_name || currentSlots.reason || currentSlots.allowed_start_time) && !latestRequest?.id && (
+      {(currentSlots.destination_name || currentSlots.reason || currentSlots.allowed_start_time || currentSlots.leave_date) && !latestRequest?.id && (
         <div className="bg-blue-50 border-b border-blue-200/80 px-4 py-2 flex items-center justify-between text-[11px] animate-fadeIn">
           <div className="flex items-center gap-2 text-blue-900 font-medium truncate">
             <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
-            <span className="font-bold">กำลังรวบรวมข้อมูลคำขอ:</span>
-            <span>📍 {currentSlots.destination_name || 'รอระบุสถานที่'}</span>
+            <span className="font-bold">ข้อมูลที่ AI กำลังจำ:</span>
+            <span>📅 {currentSlots.leave_date_text || currentSlots.leave_date || 'รอระบุวัน'}</span>
+            <span>• 📍 {currentSlots.destination_name || 'รอระบุสถานที่'}</span>
             <span>• ⏰ {currentSlots.allowed_start_time ? `${currentSlots.allowed_start_time}-${currentSlots.allowed_end_time} น.` : 'รอระบุเวลา'}</span>
           </div>
           <button
             onClick={() => {
               setCurrentSlots({});
+              setMissingSlots([]);
               setAskAttachmentNow(false);
             }}
             className="text-[10px] text-blue-600 hover:underline font-semibold shrink-0"
@@ -524,6 +532,13 @@ function ChatContent() {
 
                       <div className="bg-white/10 rounded-2xl p-3 border border-white/15 space-y-2">
                         <div className="flex items-center justify-between text-xs text-white/90">
+                          <span className="text-[11px]">วันที่อนุญาต:</span>
+                          <span className="font-bold">
+                            {m.requestCard.leave_date}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs text-white/90">
                           <span className="text-[11px]">เวลานัดหมายออก-เข้า:</span>
                           <span className="font-bold">
                             {m.requestCard.allowed_start_time} - {m.requestCard.allowed_end_time} น.
@@ -595,6 +610,73 @@ function ChatContent() {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Smart Quick Replies when Date or Time is Missing */}
+      {missingSlots.length > 0 && !askAttachmentNow && (
+        <div className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-blue-50/80 border-t border-blue-100">
+          <span className="text-[10px] font-bold text-blue-800 shrink-0">คำตอบด่วน:</span>
+          
+          {/* Date Suggestions */}
+          {missingSlots.includes('date') && (
+            <>
+              <button
+                onClick={() => handleSend(undefined, false, undefined, 'วันนี้ครับ')}
+                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
+              >
+                📅 วันนี้
+              </button>
+              <button
+                onClick={() => handleSend(undefined, false, undefined, 'พรุ่งนี้ครับ')}
+                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
+              >
+                📅 พรุ่งนี้
+              </button>
+            </>
+          )}
+
+          {/* Time Suggestions with Colloquial terms */}
+          {missingSlots.includes('time') && (
+            <>
+              <button
+                onClick={() => handleSend(undefined, false, undefined, 'ตอนเทียงครับ')}
+                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
+              >
+                🕛 ตอนเที่ยง (12:00-13:30)
+              </button>
+              <button
+                onClick={() => handleSend(undefined, false, undefined, 'ช่วงบ่ายครับ')}
+                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
+              >
+                🕐 ช่วงบ่าย (13:00-15:30)
+              </button>
+              <button
+                onClick={() => handleSend(undefined, false, undefined, 'ช่วงเช้าครับ')}
+                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
+              >
+                🌅 ช่วงเช้า (08:30-11:30)
+              </button>
+            </>
+          )}
+
+          {/* Destination Quick suggestions */}
+          {missingSlots.includes('destination') && (
+            <>
+              <button
+                onClick={() => handleSend(undefined, false, undefined, 'ไปโรงพยาบาลองครักษ์ครับ')}
+                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
+              >
+                🏥 รพ.องครักษ์
+              </button>
+              <button
+                onClick={() => handleSend(undefined, false, undefined, 'ไปที่ว่าการอำเภอองครักษ์ครับ')}
+                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
+              >
+                💼 ที่ว่าการอำเภอ
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Special Slot-Filling Prompt: Attachment Options Bar */}
       {askAttachmentNow && (
         <div className="mx-3 mb-2 p-3 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm animate-fadeIn space-y-2">
@@ -662,10 +744,10 @@ function ChatContent() {
         </button>
 
         <button
-          onClick={() => setInput('ขอไปพบแพทย์ตามนัดที่ รพ.องครักษ์ เวลา 13:00 - 15:30 น.')}
+          onClick={() => setInput('ขอไปพบแพทย์ตามนัดที่ รพ.องครักษ์ ตอนเทียงวันนี้ครับ')}
           className="px-3 py-1.5 bg-white border border-slate-200/80 rounded-full text-[11px] font-medium text-slate-700 whitespace-nowrap shadow-2xs hover:bg-slate-50 flex items-center gap-1"
         >
-          <span>🏥 ขอไปพบแพทย์</span>
+          <span>🏥 ขอไปพบแพทย์ (ตอนเที่ยง)</span>
         </button>
 
         <button
@@ -708,7 +790,7 @@ function ChatContent() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="พิมพ์คุยกับน้องเกต AI เช่น ขอออกไปไหน เวลาเท่าไร..."
+            placeholder="พิมพ์คุยกับน้องเกต AI เช่น ขอออกไปไหน ตอนเทียง วันไหน..."
             className="flex-1 py-2.5 px-4 bg-slate-100 border border-slate-200/60 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC]/20 focus:border-[#0066CC] transition-all"
           />
 
