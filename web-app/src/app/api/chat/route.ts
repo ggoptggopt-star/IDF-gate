@@ -60,23 +60,30 @@ export async function POST(req: NextRequest) {
     } | null = null;
 
     // 1. If Gemini API Key is provided, call real Google Gemini API
+    let usedModel: string | null = null;
     if (activeApiKey) {
-      try {
-        const ai = new GoogleGenAI({ apiKey: activeApiKey });
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: message,
-          config: {
-            systemInstruction: SYSTEM_INSTRUCTION,
-            responseMimeType: 'application/json',
-            temperature: 0.2,
-          },
-        });
+      const candidateModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+      const ai = new GoogleGenAI({ apiKey: activeApiKey });
 
-        const rawText = response.text || '';
-        aiResult = JSON.parse(rawText);
-      } catch (geminiError: any) {
-        console.warn('Gemini API call error (falling back to smart agent):', geminiError.message);
+      for (const modelName of candidateModels) {
+        try {
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents: message,
+            config: {
+              systemInstruction: SYSTEM_INSTRUCTION,
+              responseMimeType: 'application/json',
+              temperature: 0.2,
+            },
+          });
+
+          const rawText = response.text || '';
+          aiResult = JSON.parse(rawText);
+          usedModel = modelName;
+          break; // successfully generated
+        } catch (geminiError: any) {
+          console.warn(`Gemini API error with model ${modelName}:`, geminiError.message);
+        }
       }
     }
 
@@ -196,7 +203,7 @@ export async function POST(req: NextRequest) {
       success: true,
       reply: aiResult.replyMessage,
       request: createdRequest,
-      poweredBy: activeApiKey ? 'Google Gemini 2.5 Flash' : 'Smart Gate AI Assistant',
+      poweredBy: usedModel ? `Google Gemini AI (${usedModel})` : (activeApiKey ? 'Google Gemini AI' : 'Smart Gate AI Assistant'),
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
