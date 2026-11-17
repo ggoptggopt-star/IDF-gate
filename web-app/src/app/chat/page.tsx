@@ -633,26 +633,62 @@ function ChatContent() {
             </>
           )}
 
-          {/* Time Suggestions with Colloquial terms */}
-          {missingSlots.includes('time') && (
+          {/* Return Time Suggestions (Never guess!) */}
+          {missingSlots.includes('return_time') && (
             <>
               <button
-                onClick={() => handleSend(undefined, false, undefined, 'ตอนเทียงครับ')}
-                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
+                onClick={() => handleSend(undefined, false, undefined, 'กลับ 13:30 น. ครับ')}
+                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-full text-[11px] font-semibold text-amber-900 shrink-0 shadow-2xs transition-all"
               >
-                🕛 ตอนเที่ยง (12:00-13:30)
+                🕒 กลับ 13:30 น.
               </button>
               <button
-                onClick={() => handleSend(undefined, false, undefined, 'ช่วงบ่ายครับ')}
-                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
+                onClick={() => handleSend(undefined, false, undefined, 'กลับบ่ายสอง (14:00 น.) ครับ')}
+                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-full text-[11px] font-semibold text-amber-900 shrink-0 shadow-2xs transition-all"
               >
-                🕐 ช่วงบ่าย (13:00-15:30)
+                🕒 กลับบ่ายสอง (14:00 น.)
               </button>
               <button
-                onClick={() => handleSend(undefined, false, undefined, 'ช่วงเช้าครับ')}
+                onClick={() => handleSend(undefined, false, undefined, 'กลับบ่ายสาม (15:00 น.) ครับ')}
+                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-full text-[11px] font-semibold text-amber-900 shrink-0 shadow-2xs transition-all"
+              >
+                🕒 กลับบ่ายสาม (15:00 น.)
+              </button>
+              <button
+                onClick={() => handleSend(undefined, false, undefined, 'กลับ 15:30 น. ครับ')}
+                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-full text-[11px] font-semibold text-amber-900 shrink-0 shadow-2xs transition-all"
+              >
+                🕒 กลับ 15:30 น.
+              </button>
+              <button
+                onClick={() => handleSend(undefined, false, undefined, 'กลับ 16:30 น. (เลิกเรียน) ครับ')}
+                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-full text-[11px] font-semibold text-amber-900 shrink-0 shadow-2xs transition-all"
+              >
+                🕒 กลับ 16:30 น. (เลิกเรียน)
+              </button>
+            </>
+          )}
+
+          {/* Departure Time Suggestions */}
+          {missingSlots.includes('start_time') && (
+            <>
+              <button
+                onClick={() => handleSend(undefined, false, undefined, 'ออกตอนเทียงครับ')}
                 className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
               >
-                🌅 ช่วงเช้า (08:30-11:30)
+                🕛 ออกตอนเที่ยง (12:00)
+              </button>
+              <button
+                onClick={() => handleSend(undefined, false, undefined, 'ออกช่วงบ่ายครับ')}
+                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
+              >
+                🕐 ออกช่วงบ่าย (13:00)
+              </button>
+              <button
+                onClick={() => handleSend(undefined, false, undefined, 'ออกช่วงเช้าครับ')}
+                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
+              >
+                🌅 ออกช่วงเช้า (08:30)
               </button>
             </>
           )}
