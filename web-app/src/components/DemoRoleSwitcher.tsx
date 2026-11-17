@@ -52,6 +52,15 @@ export default function DemoRoleSwitcher() {
               );
             })}
 
+            {/* Link to Database Viewer */}
+            <a
+              href="/admin/database"
+              className="px-2 py-1 rounded text-[11px] font-medium bg-emerald-900/80 hover:bg-emerald-800 text-emerald-200 transition-all shrink-0 flex items-center gap-1 border border-emerald-700/60"
+              title="เปิดดูตารางฐานข้อมูล SQLite ทั้งหมด"
+            >
+              <span>🗄️ ดูฐานข้อมูล</span>
+            </a>
+
             {/* Demo Settings Panel Button */}
             <button
               onClick={() => setShowSettingsModal(true)}
