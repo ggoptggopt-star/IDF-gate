@@ -27,6 +27,7 @@ export default function DemoSettingsModal({ isOpen, onClose }: DemoSettingsModal
   const [mockGpsLocation, setMockGpsLocation] = useState<'real' | 'gate' | 'hospital' | 'far'>('hospital');
   const [esp32Ip, setEsp32Ip] = useState('192.168.1.105');
   const [aiThreshold, setAiThreshold] = useState(85);
+  const [geminiApiKey, setGeminiApiKey] = useState('');
 
   useEffect(() => {
     const savedGps = localStorage.getItem('sgp_mock_gps') as any;
@@ -35,12 +36,15 @@ export default function DemoSettingsModal({ isOpen, onClose }: DemoSettingsModal
     if (savedIp) setEsp32Ip(savedIp);
     const savedThresh = localStorage.getItem('sgp_ai_thresh');
     if (savedThresh) setAiThreshold(Number(savedThresh));
+    const savedKey = localStorage.getItem('sgp_gemini_api_key');
+    if (savedKey) setGeminiApiKey(savedKey);
   }, []);
 
   const handleSaveSettings = () => {
     localStorage.setItem('sgp_mock_gps', mockGpsLocation);
     localStorage.setItem('sgp_esp32_ip', esp32Ip);
     localStorage.setItem('sgp_ai_thresh', String(aiThreshold));
+    localStorage.setItem('sgp_gemini_api_key', geminiApiKey.trim());
     onClose();
   };
 
@@ -178,7 +182,35 @@ export default function DemoSettingsModal({ isOpen, onClose }: DemoSettingsModal
           </div>
         </div>
 
-        {/* Section 3: Hardware & AI Threshold */}
+        {/* Section 3: Google Gemini AI Settings */}
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-slate-800 flex items-center gap-1.5">
+              <span className="text-cyan-600 font-extrabold">✦</span>
+              <span>Google Gemini AI (บอทตอบแชท)</span>
+            </span>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+              geminiApiKey ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+            }`}>
+              {geminiApiKey ? 'ต่อ Gemini แล้ว ✓' : 'Smart Agent สำรอง'}
+            </span>
+          </div>
+
+          <div>
+            <label className="text-[11px] text-slate-600 block mb-1">
+              Gemini API Key (ไม่ใส่ก็คุยได้ด้วย Built-in Agent):
+            </label>
+            <input
+              type="password"
+              value={geminiApiKey}
+              onChange={(e) => setGeminiApiKey(e.target.value)}
+              placeholder="วางคีย์ AIzaSy... (ถ้ามี)"
+              className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-mono"
+            />
+          </div>
+        </div>
+
+        {/* Section 4: Hardware & AI Threshold */}
         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2.5 text-xs">
           <span className="font-bold text-slate-800 flex items-center gap-1">
             <Cpu className="w-3.5 h-3.5 text-emerald-600" />
