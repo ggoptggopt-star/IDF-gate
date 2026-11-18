@@ -18,6 +18,12 @@ import {
   Building2,
   Calendar,
   Clock,
+  UserCheck,
+  Shield,
+  Award,
+  User,
+  ThumbsUp,
+  XCircle,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { LeaveRequest } from '@/types';
@@ -38,7 +44,7 @@ export interface ChatSlots {
 
 interface ChatMessage {
   id: string;
-  sender: 'student' | 'bot' | 'system';
+  sender: 'student' | 'bot' | 'system' | 'teacher';
   text?: string;
   time: string;
   poweredBy?: string;
@@ -61,10 +67,11 @@ function ChatContent() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [latestRequest, setLatestRequest] = useState<LeaveRequest | null>(null);
+  const [pendingRequests, setPendingRequests] = useState<LeaveRequest[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState('');
   
-  // Slot-Filling State
+  // Slot-Filling State (for student role)
   const [currentSlots, setCurrentSlots] = useState<ChatSlots>({});
   const [missingSlots, setMissingSlots] = useState<string[]>([]);
   const [askAttachmentNow, setAskAttachmentNow] = useState(false);
@@ -73,6 +80,33 @@ function ChatContent() {
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const getApproverStep = (role?: string): number => {
+    switch (role) {
+      case 'subject_teacher': return 1;
+      case 'advisor': return 2;
+      case 'dept_head': return 3;
+      case 'discipline': return 4;
+      case 'deputy_director': return 5;
+      default: return 0;
+    }
+  };
+
+  const getRoleTitle = (role?: string): string => {
+    switch (role) {
+      case 'subject_teacher': return 'ครูประจำวิชา (ขั้นที่ 1)';
+      case 'advisor': return 'ครูที่ปรึกษา (ขั้นที่ 2)';
+      case 'dept_head': return 'หัวหน้าแผนกวิชา ทธด. (ขั้นที่ 3)';
+      case 'discipline': return 'เจ้าหน้าที่งานปกครอง (ขั้นที่ 4)';
+      case 'deputy_director': return 'รองผู้อำนวยการ (ขั้นที่ 5)';
+      case 'guard': return 'เจ้าหน้าที่ รปภ.';
+      case 'admin': return 'ผู้ดูแลระบบ';
+      default: return 'นักศึกษา';
+    }
+  };
+
+  const isApprover = user?.role && user.role !== 'student' && user.role !== 'guard';
+  const userStep = getApproverStep(user?.role);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -88,70 +122,120 @@ function ChatContent() {
     if (savedKey) setGeminiApiKey(savedKey);
   }, []);
 
-  // Fetch initial student state and requests
+  // Fetch requests based on role (Student vs Approver)
   useEffect(() => {
     async function loadRequests() {
       try {
-        const studentId = user?.id || 'user-stu-akkaracha';
-        const res = await fetch(`/api/requests?student_id=${studentId}`);
-        const data = await res.json();
         const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-        if (data.success && data.requests && data.requests.length > 0) {
-          const req: LeaveRequest = data.requests[0];
-          setLatestRequest(req);
+        if (isApprover) {
+          // Approver view: fetch all requests waiting for this teacher's step
+          const res = await fetch('/api/requests');
+          const data = await res.json();
 
-          const initialMsgs: ChatMessage[] = [
-            {
-              id: 'msg-welcome',
-              sender: 'bot',
-              text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยอัจฉริยะประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์บอกสถานที่ วันที่ และเวลาได้เลยครับ (เช่น "ขอไปหาหมอที่ รพ.องครักษ์ ตอนเที่ยงวันนี้ครับ")',
-              time: req.allowed_start_time || '12:20',
-              poweredBy: 'Google Gemini AI',
-            },
-            {
-              id: 'msg-1',
-              sender: 'student',
-              text: `${req.reason} (สถานที่: ${req.destination_name || 'นอกวิทยาลัย'}) วันที่ ${req.leave_date} เวลา ${req.allowed_start_time} - ${req.allowed_end_time} น. ครับ`,
-              time: req.allowed_start_time || '12:25',
-              attachmentUrl: req.attachment_path || undefined,
-            },
-            {
-              id: 'msg-2',
-              sender: 'bot',
-              text: `รับเรื่องเรียบร้อยครับ! ระบบได้ผูกตารางสอนวิชา '${req.course_name || 'การวิเคราะห์ข้อมูล'}' พร้อมสร้างคำร้อง #${req.request_code} และส่งต่อให้ผู้อนุมัติทั้ง 5 ขั้นตอนแล้วครับ`,
-              time: nowTime,
-              poweredBy: 'Google Gemini AI',
-              requestCard: req,
-            },
-          ];
-
-          if (req.checkin_verified) {
-            initialMsgs.push({
-              id: 'msg-checkin',
-              sender: 'bot',
-              time: req.checkin_at || nowTime,
-              checkinCard: {
-                destination: req.destination_name || 'โรงพยาบาลองครักษ์',
-                distance_m: req.checkin_distance_m || 28.4,
-                verified: true,
-                time: req.checkin_at || nowTime,
-                maps_url: `https://www.google.com/maps?q=${req.checkin_lat || 14.1348},${req.checkin_lng || 100.9922}`,
-              },
+          if (data.success && data.requests) {
+            const allReqs: LeaveRequest[] = data.requests;
+            const waitingForMe = allReqs.filter((r) => {
+              if (r.overall_status !== 'pending') return false;
+              if (user?.role === 'admin') return true;
+              return r.current_step === userStep;
             });
-          }
 
-          setMessages(initialMsgs);
+            setPendingRequests(waitingForMe);
+
+            const initialMsgs: ChatMessage[] = [];
+
+            if (waitingForMe.length > 0) {
+              initialMsgs.push({
+                id: 'msg-approver-welcome',
+                sender: 'bot',
+                text: `สวัสดีครับ ${user?.full_name || 'คุณครู'} (${getRoleTitle(user?.role)})!\n\nระบบ Smart Gate AI มีคำร้องขออนุญาตออกนอกสถานศึกษาของนักศึกษารอการอนุมัติจากท่าน ${waitingForMe.length} รายการครับ:\nท่านสามารถกดปุ่ม [✓ อนุมัติคำขอ] บนการ์ดด้านล่าง หรือพิมพ์คำว่า "อนุมัติ" ในแชทได้ทันทีครับ`,
+                time: nowTime,
+                poweredBy: 'Google Gemini AI',
+              });
+
+              waitingForMe.forEach((req) => {
+                initialMsgs.push({
+                  id: `req-card-${req.id}`,
+                  sender: 'bot',
+                  time: req.allowed_start_time || nowTime,
+                  requestCard: req,
+                });
+              });
+            } else {
+              initialMsgs.push({
+                id: 'msg-approver-empty',
+                sender: 'bot',
+                text: `สวัสดีครับ ${user?.full_name || 'คุณครู'} (${getRoleTitle(user?.role)})!\n\nขณะนี้ไม่มีคำร้องใหม่ที่ค้างรอการพิจารณาในขั้นของท่านครับ ระบบจะส่งข้อความแจ้งเตือนทันทีเมื่อมีคำร้องยื่นเข้ามาครับ`,
+                time: nowTime,
+                poweredBy: 'Google Gemini AI',
+              });
+            }
+
+            setMessages(initialMsgs);
+          }
         } else {
-          setMessages([
-            {
-              id: 'msg-welcome',
-              sender: 'bot',
-              text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์แจ้งเหตุผล สถานที่ วันที่ และเวลาได้เลยครับ (เช่น "ขอไปหาหมอรพ.องครักษ์ตอนเทียง")',
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              poweredBy: 'Google Gemini AI',
-            },
-          ]);
+          // Student view
+          const studentId = user?.id || 'user-stu-akkaracha';
+          const res = await fetch(`/api/requests?student_id=${studentId}`);
+          const data = await res.json();
+
+          if (data.success && data.requests && data.requests.length > 0) {
+            const req: LeaveRequest = data.requests[0];
+            setLatestRequest(req);
+
+            const initialMsgs: ChatMessage[] = [
+              {
+                id: 'msg-welcome',
+                sender: 'bot',
+                text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยอัจฉริยะประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์บอกสถานที่ วันที่ และเวลาได้เลยครับ (เช่น "ขอไปหาหมอที่ รพ.องครักษ์ ตอนเที่ยงวันนี้ครับ")',
+                time: req.allowed_start_time || '12:20',
+                poweredBy: 'Google Gemini AI',
+              },
+              {
+                id: 'msg-1',
+                sender: 'student',
+                text: `${req.reason} (สถานที่: ${req.destination_name || 'นอกวิทยาลัย'}) วันที่ ${req.leave_date} เวลา ${req.allowed_start_time} - ${req.allowed_end_time} น. ครับ`,
+                time: req.allowed_start_time || '12:25',
+                attachmentUrl: req.attachment_path || undefined,
+              },
+              {
+                id: 'msg-2',
+                sender: 'bot',
+                text: `รับเรื่องเรียบร้อยครับ! ระบบได้ผูกตารางสอนวิชา '${req.course_name || 'การวิเคราะห์ข้อมูล'}' พร้อมสร้างคำร้อง #${req.request_code} และส่งต่อให้ผู้อนุมัติทั้ง 5 ขั้นตอนแล้วครับ`,
+                time: nowTime,
+                poweredBy: 'Google Gemini AI',
+                requestCard: req,
+              },
+            ];
+
+            if (req.checkin_verified) {
+              initialMsgs.push({
+                id: 'msg-checkin',
+                sender: 'bot',
+                time: req.checkin_at || nowTime,
+                checkinCard: {
+                  destination: req.destination_name || 'โรงพยาบาลองครักษ์',
+                  distance_m: req.checkin_distance_m || 28.4,
+                  verified: true,
+                  time: req.checkin_at || nowTime,
+                  maps_url: `https://www.google.com/maps?q=${req.checkin_lat || 14.1348},${req.checkin_lng || 100.9922}`,
+                },
+              });
+            }
+
+            setMessages(initialMsgs);
+          } else {
+            setMessages([
+              {
+                id: 'msg-welcome',
+                sender: 'bot',
+                text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์แจ้งเหตุผล สถานที่ วันที่ และเวลาได้เลยครับ (เช่น "ขอไปหาหมอรพ.องครักษ์ตอนเทียง")',
+                time: nowTime,
+                poweredBy: 'Google Gemini AI',
+              },
+            ]);
+          }
         }
       } catch (err) {
         console.error(err);
@@ -159,7 +243,83 @@ function ChatContent() {
     }
 
     loadRequests();
-  }, [user]);
+  }, [user, isApprover, userStep]);
+
+  // Handle Teacher Direct Approval Action in Chat
+  const handleTeacherAction = async (requestId: string, action: 'approve' | 'reject') => {
+    try {
+      setIsSubmitting(true);
+      const remark = action === 'approve' ? 'อนุมัติผ่านแชท AI' : 'ไม่อนุมัติตามระเบียบผ่านแชท AI';
+      const res = await fetch(`/api/requests/${requestId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          remark,
+          approver_id: user?.id,
+          approver_role: user?.role,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        // Update local card state in messages
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.requestCard && m.requestCard.id === requestId) {
+              const updated = { ...m.requestCard };
+              if (action === 'approve') {
+                if (userStep === 1) updated.step1_status = 'approved';
+                if (userStep === 2) updated.step2_status = 'approved';
+                if (userStep === 3) updated.step3_status = 'approved';
+                if (userStep === 4) updated.step4_status = 'approved';
+                if (userStep === 5) {
+                  updated.step5_status = 'approved';
+                  updated.overall_status = 'approved';
+                } else {
+                  updated.current_step = updated.current_step + 1;
+                }
+              } else {
+                updated.overall_status = 'rejected';
+                if (userStep === 1) updated.step1_status = 'rejected';
+                if (userStep === 2) updated.step2_status = 'rejected';
+                if (userStep === 3) updated.step3_status = 'rejected';
+                if (userStep === 4) updated.step4_status = 'rejected';
+                if (userStep === 5) updated.step5_status = 'rejected';
+              }
+              return { ...m, requestCard: updated };
+            }
+            return m;
+          })
+        );
+
+        // Append bot action confirmation bubble
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `action-confirm-${Date.now()}`,
+            sender: 'bot',
+            text: action === 'approve'
+              ? `✓ บันทึกการอนุมัติคำร้องเรียบร้อยครับ!\n${data.message || 'ระบบได้ส่งต่อคำร้องไปยังผู้อนุมัติขั้นถัดไปเรียบร้อยแล้วครับ'}`
+              : `✕ บันทึกการปฏิเสธคำร้องเรียบร้อยแล้วครับ`,
+            time: nowTime,
+            poweredBy: 'Google Gemini AI',
+          },
+        ]);
+
+        // Remove from pending
+        setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+      } else {
+        alert(data.error || 'เกิดข้อผิดพลาดในการอนุมัติ');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   // Handle Quick Category selection from URL
   useEffect(() => {
@@ -205,7 +365,7 @@ function ChatContent() {
     }
   };
 
-  // Send request via Gemini AI chat endpoint with Slot-Filling
+  // Send request via Gemini AI chat endpoint
   const handleSend = async (
     e?: React.FormEvent,
     skipAttachment: boolean = false,
@@ -223,7 +383,44 @@ function ChatContent() {
     setInput('');
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // Append student bubble
+    // 1. If user is an Approver and typed approval words ("อนุมัติ", "ผ่าน", "ไม่อนุมัติ")
+    if (isApprover) {
+      const isApproveCmd = /(อนุมัติ|อนุญาต|ผ่าน|ตกลง|ok|yes)/i.test(userText);
+      const isRejectCmd = /(ไม่อนุมัติ|ปฏิเสธ|ไม่อนุญาต|ไม่ให้ไป|ตีกลับ)/i.test(userText);
+
+      // Append teacher chat bubble
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `teacher-${Date.now()}`,
+          sender: 'student',
+          text: userText,
+          time: nowTime,
+        },
+      ]);
+
+      if (isApproveCmd || isRejectCmd) {
+        const targetReq = pendingRequests[0];
+        if (targetReq) {
+          await handleTeacherAction(targetReq.id, isApproveCmd ? 'approve' : 'reject');
+          return;
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `bot-no-req-${Date.now()}`,
+              sender: 'bot',
+              text: 'ขณะนี้ไม่มีคำร้องที่ค้างรอการอนุมัติในขั้นของท่านแล้วครับ ขอบคุณครับ!',
+              time: nowTime,
+              poweredBy: 'Google Gemini AI',
+            },
+          ]);
+          return;
+        }
+      }
+    }
+
+    // 2. Student Chat / General AI QA
     let bubbleText = userText;
     if (skipAttachment && !bubbleText) {
       bubbleText = 'ไม่มีเอกสารแนบครับ (ข้ามขั้นตอนแนบ)';
@@ -270,7 +467,7 @@ function ChatContent() {
 
         if (data.request) {
           setLatestRequest(data.request);
-          setCurrentSlots({}); // reset slots
+          setCurrentSlots({});
           setMissingSlots([]);
           setSelectedAttachmentUrl(null);
         }
@@ -403,21 +600,33 @@ function ChatContent() {
               <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
               <span className="text-[10px] text-emerald-400 font-medium">Online</span>
             </div>
-            <p className="text-[10px] text-slate-300">ระบบขออนุญาต & ไม้กั้น AI (OICEC)</p>
+            <p className="text-[10px] text-slate-300">
+              {isApprover ? `${user?.full_name} (${getRoleTitle(user?.role)})` : 'ระบบขออนุญาต & ไม้กั้น AI (OICEC)'}
+            </p>
           </div>
         </div>
 
-        <Link
-          href="/gate"
-          className="px-3 py-1.5 bg-[#0077D7] hover:bg-[#0066CC] active:scale-95 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 shadow-sm transition-all"
-        >
-          <ScanFace className="w-3.5 h-3.5" />
-          <span>เปิดไม้กั้น</span>
-        </Link>
+        {isApprover ? (
+          <Link
+            href="/approver"
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 shadow-sm transition-all"
+          >
+            <UserCheck className="w-3.5 h-3.5" />
+            <span>คิวอนุมัติ</span>
+          </Link>
+        ) : (
+          <Link
+            href="/gate"
+            className="px-3 py-1.5 bg-[#0077D7] hover:bg-[#0066CC] active:scale-95 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 shadow-sm transition-all"
+          >
+            <ScanFace className="w-3.5 h-3.5" />
+            <span>เปิดไม้กั้น</span>
+          </Link>
+        )}
       </header>
 
-      {/* Active Slot-Filling Tracker Banner (If slots partially filled) */}
-      {(currentSlots.destination_name || currentSlots.reason || currentSlots.allowed_start_time || currentSlots.leave_date) && !latestRequest?.id && (
+      {/* Active Slot-Filling Tracker Banner (For student role) */}
+      {!isApprover && (currentSlots.destination_name || currentSlots.reason || currentSlots.allowed_start_time || currentSlots.leave_date) && !latestRequest?.id && (
         <div className="bg-blue-50 border-b border-blue-200/80 px-4 py-2 flex items-center justify-between text-[11px] animate-fadeIn">
           <div className="flex items-center gap-2 text-blue-900 font-medium truncate">
             <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
@@ -448,7 +657,7 @@ function ChatContent() {
                 <div className="max-w-[85%] bg-[#DCE6F2] text-slate-800 text-xs rounded-2xl rounded-tr-xs px-4 py-3 shadow-2xs leading-relaxed space-y-2">
                   <div>{m.text}</div>
                   
-                  {/* Student Attached Image Bubble */}
+                  {/* Attached Image Bubble */}
                   {m.attachmentUrl && (
                     <div
                       onClick={() => setPreviewModalUrl(m.attachmentUrl!)}
@@ -491,21 +700,35 @@ function ChatContent() {
                     </div>
                   )}
 
-                  {/* 5-Tier Request Card if created */}
+                  {/* 5-Tier Request Card (Interactive for both Student & Approver) */}
                   {m.requestCard && (
                     <div className="bg-[#0066CC] text-white rounded-3xl p-4 shadow-md w-full space-y-3">
                       <div className="flex items-center justify-between text-xs">
                         <span className="bg-white/20 backdrop-blur-md px-2.5 py-0.5 rounded-full text-[11px] font-semibold">
                           {m.requestCard.overall_status === 'approved'
-                            ? 'อนุมัติคำขอแล้ว'
+                            ? 'อนุมัติคำขอครบ 5 ขั้นแล้ว ✓'
+                            : m.requestCard.overall_status === 'rejected'
+                            ? 'ไม่อนุมัติ ✕'
                             : `กำลังพิจารณา (ขั้นที่ ${m.requestCard.current_step}/5)`}
                         </span>
                         <span className="font-mono text-white/80 text-[11px]">{m.requestCard.request_code}</span>
                       </div>
 
-                      <p className="text-xs text-blue-50 leading-relaxed">
-                        บันทึกคำร้องเรียบร้อย ส่งเรื่องต่อไปยังครูประจำวิชาและครูที่ปรึกษา (แผนกเทคโนโลยีธุรกิจดิจิทัล) แล้วครับ
-                      </p>
+                      {/* Student Info Box (Important for Approver) */}
+                      <div className="bg-white/10 rounded-2xl p-2.5 border border-white/15">
+                        <div className="flex items-center justify-between text-xs font-bold text-white mb-0.5">
+                          <span>👤 {m.requestCard.student_name || 'นายอัครชา เปมะวิภาต'}</span>
+                          <span className="text-[10px] text-blue-100 font-normal">ชั้น {m.requestCard.group_code || 'ปวส.2/1'}</span>
+                        </div>
+                        <p className="text-[11px] text-blue-50 mt-1">
+                          <span className="font-bold">เหตุผล: </span>{m.requestCard.reason}
+                        </p>
+                        {m.requestCard.destination_name && (
+                          <p className="text-[11px] text-blue-100 mt-0.5">
+                            <span className="font-bold">สถานที่: </span>{m.requestCard.destination_name}
+                          </p>
+                        )}
+                      </div>
 
                       {/* Display attached image thumbnail in Card if exists */}
                       {m.requestCard.attachment_path && (
@@ -532,14 +755,12 @@ function ChatContent() {
 
                       <div className="bg-white/10 rounded-2xl p-3 border border-white/15 space-y-2">
                         <div className="flex items-center justify-between text-xs text-white/90">
-                          <span className="text-[11px]">วันที่อนุญาต:</span>
-                          <span className="font-bold">
-                            {m.requestCard.leave_date}
-                          </span>
+                          <span className="text-[11px]">วันที่ขอออก:</span>
+                          <span className="font-bold">{m.requestCard.leave_date}</span>
                         </div>
 
                         <div className="flex items-center justify-between text-xs text-white/90">
-                          <span className="text-[11px]">เวลานัดหมายออก-เข้า:</span>
+                          <span className="text-[11px]">ช่วงเวลาที่ขอออก-กลับ:</span>
                           <span className="font-bold">
                             {m.requestCard.allowed_start_time} - {m.requestCard.allowed_end_time} น.
                           </span>
@@ -552,13 +773,55 @@ function ChatContent() {
                           </div>
                         )}
 
-                        <Link
-                          href="/gate"
-                          className="w-full py-2.5 bg-white hover:bg-blue-50 text-[#0066CC] text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all"
-                        >
-                          <ScanFace className="w-4 h-4 text-[#0066CC]" />
-                          <span>สแกนใบหน้าเพื่อเปิดไม้กั้นอัตโนมัติ</span>
-                        </Link>
+                        {/* Approver Action Buttons vs Student Gate Button */}
+                        {isApprover ? (
+                          <div className="pt-2 border-t border-white/20 space-y-1.5">
+                            {m.requestCard.overall_status === 'pending' && (user?.role === 'admin' || m.requestCard.current_step === userStep) ? (
+                              <div className="space-y-1.5">
+                                <div className="text-[11px] text-blue-100 font-medium text-center">
+                                  รอดำเนินการในขั้นของท่าน ({getRoleTitle(user?.role)}):
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button
+                                    onClick={() => handleTeacherAction(m.requestCard!.id, 'approve')}
+                                    disabled={isSubmitting}
+                                    className="py-2.5 px-3 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer"
+                                  >
+                                    <CheckCircle2 className="w-4 h-4" />
+                                    <span>{userStep === 5 ? '✓ อนุมัติขั้นสุดท้าย' : '✓ อนุมัติส่งต่อ'}</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleTeacherAction(m.requestCard!.id, 'reject')}
+                                    disabled={isSubmitting}
+                                    className="py-2.5 px-3 bg-rose-500/80 hover:bg-rose-600 active:scale-95 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                                  >
+                                    <X className="w-4 h-4" />
+                                    <span>✕ ไม่อนุมัติ</span>
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="bg-emerald-500/20 border border-emerald-400/30 rounded-xl p-2 text-center text-xs text-white font-bold flex items-center justify-center gap-1.5">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                                <span>
+                                  {m.requestCard.overall_status === 'approved'
+                                    ? 'อนุมัติครบ 5 ขั้นแล้ว (ส่งข้อมูลเข้าป้อมยามเรียบร้อย)'
+                                    : m.requestCard.overall_status === 'rejected'
+                                    ? 'คำร้องถูกปฏิเสธแล้ว'
+                                    : `ท่านได้อนุมัติในขั้นนี้แล้ว (กำลังรอขั้นที่ ${m.requestCard.current_step}/5)`}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <Link
+                            href="/gate"
+                            className="w-full py-2.5 bg-white hover:bg-blue-50 text-[#0066CC] text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all"
+                          >
+                            <ScanFace className="w-4 h-4 text-[#0066CC]" />
+                            <span>สแกนใบหน้าเพื่อเปิดไม้กั้นอัตโนมัติ</span>
+                          </Link>
+                        )}
                       </div>
                     </div>
                   )}
@@ -602,7 +865,7 @@ function ChatContent() {
             </div>
             <div className="bg-white text-slate-600 text-xs rounded-2xl rounded-tl-xs px-4 py-3 shadow-2xs border border-slate-100 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-cyan-500 animate-ping"></span>
-              <span>น้องเกต AI กำลังคิดคำตอบและวิเคราะห์คำขอ...</span>
+              <span>น้องเกต AI กำลังประมวลผลคำสั่ง...</span>
             </div>
           </div>
         )}
@@ -610,196 +873,75 @@ function ChatContent() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Smart Quick Replies when Date or Time is Missing */}
-      {missingSlots.length > 0 && !askAttachmentNow && (
-        <div className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-blue-50/80 border-t border-blue-100">
-          <span className="text-[10px] font-bold text-blue-800 shrink-0">คำตอบด่วน:</span>
-          
-          {/* Date Suggestions */}
-          {missingSlots.includes('date') && (
-            <>
-              <button
-                onClick={() => handleSend(undefined, false, undefined, 'วันนี้ครับ')}
-                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
-              >
-                📅 วันนี้
-              </button>
-              <button
-                onClick={() => handleSend(undefined, false, undefined, 'พรุ่งนี้ครับ')}
-                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
-              >
-                📅 พรุ่งนี้
-              </button>
-            </>
-          )}
+      {/* Approver Quick Action Bar */}
+      {isApprover ? (
+        <div className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-slate-900 text-white">
+          <span className="text-[10px] font-bold text-emerald-400 shrink-0">คำสั่งครูด่วน:</span>
 
-          {/* Return Time Suggestions (Never guess!) */}
-          {missingSlots.includes('return_time') && (
-            <>
-              <button
-                onClick={() => handleSend(undefined, false, undefined, 'กลับ 13:30 น. ครับ')}
-                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-full text-[11px] font-semibold text-amber-900 shrink-0 shadow-2xs transition-all"
-              >
-                🕒 กลับ 13:30 น.
-              </button>
-              <button
-                onClick={() => handleSend(undefined, false, undefined, 'กลับบ่ายสอง (14:00 น.) ครับ')}
-                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-full text-[11px] font-semibold text-amber-900 shrink-0 shadow-2xs transition-all"
-              >
-                🕒 กลับบ่ายสอง (14:00 น.)
-              </button>
-              <button
-                onClick={() => handleSend(undefined, false, undefined, 'กลับบ่ายสาม (15:00 น.) ครับ')}
-                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-full text-[11px] font-semibold text-amber-900 shrink-0 shadow-2xs transition-all"
-              >
-                🕒 กลับบ่ายสาม (15:00 น.)
-              </button>
-              <button
-                onClick={() => handleSend(undefined, false, undefined, 'กลับ 15:30 น. ครับ')}
-                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-full text-[11px] font-semibold text-amber-900 shrink-0 shadow-2xs transition-all"
-              >
-                🕒 กลับ 15:30 น.
-              </button>
-              <button
-                onClick={() => handleSend(undefined, false, undefined, 'กลับ 16:30 น. (เลิกเรียน) ครับ')}
-                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-full text-[11px] font-semibold text-amber-900 shrink-0 shadow-2xs transition-all"
-              >
-                🕒 กลับ 16:30 น. (เลิกเรียน)
-              </button>
-            </>
-          )}
-
-          {/* Departure Time Suggestions */}
-          {missingSlots.includes('start_time') && (
-            <>
-              <button
-                onClick={() => handleSend(undefined, false, undefined, 'ออกตอนเทียงครับ')}
-                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
-              >
-                🕛 ออกตอนเที่ยง (12:00)
-              </button>
-              <button
-                onClick={() => handleSend(undefined, false, undefined, 'ออกช่วงบ่ายครับ')}
-                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
-              >
-                🕐 ออกช่วงบ่าย (13:00)
-              </button>
-              <button
-                onClick={() => handleSend(undefined, false, undefined, 'ออกช่วงเช้าครับ')}
-                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
-              >
-                🌅 ออกช่วงเช้า (08:30)
-              </button>
-            </>
-          )}
-
-          {/* Destination Quick suggestions */}
-          {missingSlots.includes('destination') && (
-            <>
-              <button
-                onClick={() => handleSend(undefined, false, undefined, 'ไปโรงพยาบาลองครักษ์ครับ')}
-                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
-              >
-                🏥 รพ.องครักษ์
-              </button>
-              <button
-                onClick={() => handleSend(undefined, false, undefined, 'ไปที่ว่าการอำเภอองครักษ์ครับ')}
-                className="px-2.5 py-1 bg-white hover:bg-blue-100 border border-blue-200 rounded-full text-[11px] font-semibold text-blue-800 shrink-0 shadow-2xs transition-all"
-              >
-                💼 ที่ว่าการอำเภอ
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Special Slot-Filling Prompt: Attachment Options Bar */}
-      {askAttachmentNow && (
-        <div className="mx-3 mb-2 p-3 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm animate-fadeIn space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold text-amber-900">
-            <span className="flex items-center gap-1.5">
-              <Paperclip className="w-4 h-4 text-amber-700" />
-              <span>แนบหลักฐาน (ถ้ามี) หรือกดส่งคำขอได้เลย:</span>
-            </span>
-            <span className="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full font-semibold">
-              ขั้นตอนสุดท้าย
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-1.5 text-xs">
-            {/* Quick Demo Attachment 1 */}
+          {pendingRequests.length > 0 && (
             <button
-              onClick={() => handleSend(undefined, false, '/uploads/attachments/doctor-note.svg')}
-              className="p-2 bg-white hover:bg-amber-100/70 border border-amber-200 rounded-xl text-left transition-all flex items-center gap-2 text-slate-800"
+              onClick={() => handleSend(undefined, false, undefined, 'อนุมัติครับ')}
+              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-full text-[11px] font-bold shrink-0 shadow-sm flex items-center gap-1 transition-all"
             >
-              <span className="text-base">🏥</span>
-              <div className="leading-tight truncate">
-                <span className="font-bold text-[11px] block">แนบใบนัดแพทย์</span>
-                <span className="text-[9px] text-slate-400">รพ.องครักษ์ (ตัวอย่าง)</span>
-              </div>
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>✓ อนุมัติคำร้องล่าสุด</span>
             </button>
+          )}
 
-            {/* Quick Demo Attachment 2 */}
-            <button
-              onClick={() => handleSend(undefined, false, '/uploads/attachments/parent-chat.svg')}
-              className="p-2 bg-white hover:bg-amber-100/70 border border-amber-200 rounded-xl text-left transition-all flex items-center gap-2 text-slate-800"
-            >
-              <span className="text-base">💬</span>
-              <div className="leading-tight truncate">
-                <span className="font-bold text-[11px] block">แนบแชทผู้ปกครอง</span>
-                <span className="text-[9px] text-slate-400">รูปยืนยันจากแม่ (ตัวอย่าง)</span>
-              </div>
-            </button>
-          </div>
-
-          {/* Skip Button (ไม่มีเอกสารแนบ) */}
-          <button
-            onClick={() => handleSend(undefined, true)}
-            className="w-full py-2 bg-amber-600 hover:bg-amber-700 active:scale-[0.99] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5"
+          <Link
+            href="/approver"
+            className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-full text-[11px] font-medium shrink-0 flex items-center gap-1 transition-all"
           >
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>ไม่มีเอกสารแนบ — ส่งคำขออนุมัติทันที</span>
+            <UserCheck className="w-3.5 h-3.5 text-blue-300" />
+            <span>ดูรายการทั้งหมด ({pendingRequests.length})</span>
+          </Link>
+
+          <button
+            onClick={() => handleSend(undefined, false, undefined, 'สรุปคำร้องที่รอการอนุมัติวันนี้')}
+            className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-full text-[11px] font-medium shrink-0 transition-all"
+          >
+            📊 สรุปยอดคำร้อง
+          </button>
+        </div>
+      ) : (
+        /* Student Quick Action Bar */
+        <div className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-[#F4F7FB]">
+          <Link
+            href="/gate"
+            className="px-3 py-1.5 bg-white border border-slate-200/80 rounded-full text-[11px] font-medium text-slate-700 whitespace-nowrap shadow-2xs hover:bg-slate-50 flex items-center gap-1"
+          >
+            <span>🔒 สแกนใบหน้าเปิดไม้กั้น</span>
+          </Link>
+
+          <button
+            onClick={handleGpsCheckin}
+            className="px-3 py-1.5 bg-white border border-emerald-200 rounded-full text-[11px] font-medium text-emerald-800 whitespace-nowrap shadow-2xs hover:bg-emerald-50 flex items-center gap-1"
+          >
+            <span>📍 เช็คอินถึงจุดหมาย</span>
+          </button>
+
+          <button
+            onClick={() => setInput('ขอไปพบแพทย์ตามนัดที่ รพ.องครักษ์ ตอนเทียงวันนี้ครับ')}
+            className="px-3 py-1.5 bg-white border border-slate-200/80 rounded-full text-[11px] font-medium text-slate-700 whitespace-nowrap shadow-2xs hover:bg-slate-50 flex items-center gap-1"
+          >
+            <span>🏥 ขอไปพบแพทย์ (ตอนเที่ยง)</span>
+          </button>
+
+          <button
+            onClick={() => setInput('ขั้นตอนการขออนุญาตออกนอกวิทยาลัยต้องทำยังไงบ้างครับ?')}
+            className="px-3 py-1.5 bg-white border border-slate-200/80 rounded-full text-[11px] font-medium text-slate-700 whitespace-nowrap shadow-2xs hover:bg-slate-50 flex items-center gap-1"
+          >
+            <span>❓ ถามขั้นตอน 5 ขั้น</span>
+          </button>
+
+          <button
+            onClick={handleReturnReport}
+            className="px-3 py-1.5 bg-white border border-blue-200 rounded-full text-[11px] font-medium text-[#0066CC] whitespace-nowrap shadow-2xs hover:bg-blue-50 flex items-center gap-1"
+          >
+            <span>✅ รายงานตัวกลับเข้าวิทยาลัย</span>
           </button>
         </div>
       )}
-
-      {/* Quick Chips Row (Above Input Bar) */}
-      <div className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-[#F4F7FB]">
-        <Link
-          href="/gate"
-          className="px-3 py-1.5 bg-white border border-slate-200/80 rounded-full text-[11px] font-medium text-slate-700 whitespace-nowrap shadow-2xs hover:bg-slate-50 flex items-center gap-1"
-        >
-          <span>🔒 สแกนใบหน้าเปิดไม้กั้น</span>
-        </Link>
-
-        <button
-          onClick={handleGpsCheckin}
-          className="px-3 py-1.5 bg-white border border-emerald-200 rounded-full text-[11px] font-medium text-emerald-800 whitespace-nowrap shadow-2xs hover:bg-emerald-50 flex items-center gap-1"
-        >
-          <span>📍 เช็คอินถึงจุดหมาย</span>
-        </button>
-
-        <button
-          onClick={() => setInput('ขอไปพบแพทย์ตามนัดที่ รพ.องครักษ์ ตอนเทียงวันนี้ครับ')}
-          className="px-3 py-1.5 bg-white border border-slate-200/80 rounded-full text-[11px] font-medium text-slate-700 whitespace-nowrap shadow-2xs hover:bg-slate-50 flex items-center gap-1"
-        >
-          <span>🏥 ขอไปพบแพทย์ (ตอนเที่ยง)</span>
-        </button>
-
-        <button
-          onClick={() => setInput('ขั้นตอนการขออนุญาตออกนอกวิทยาลัยต้องทำยังไงบ้างครับ?')}
-          className="px-3 py-1.5 bg-white border border-slate-200/80 rounded-full text-[11px] font-medium text-slate-700 whitespace-nowrap shadow-2xs hover:bg-slate-50 flex items-center gap-1"
-        >
-          <span>❓ ถามขั้นตอน 5 ขั้น</span>
-        </button>
-
-        <button
-          onClick={handleReturnReport}
-          className="px-3 py-1.5 bg-white border border-blue-200 rounded-full text-[11px] font-medium text-[#0066CC] whitespace-nowrap shadow-2xs hover:bg-blue-50 flex items-center gap-1"
-        >
-          <span>✅ รายงานตัวกลับเข้าวิทยาลัย</span>
-        </button>
-      </div>
 
       {/* Hidden File Input for Real File Upload */}
       <input
@@ -813,20 +955,26 @@ function ChatContent() {
       {/* Bottom Input Field Bar */}
       <div className="p-3 bg-white border-t border-slate-200/80 sticky bottom-16 z-30">
         <form onSubmit={(e) => handleSend(e, false)} className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2 text-slate-500 hover:text-[#0066CC] transition-colors relative"
-            title="แนบรูปถ่ายใบนัดแพทย์หรือแชทผู้ปกครองจากเครื่อง"
-          >
-            <Paperclip className="w-5 h-5 -rotate-45" />
-          </button>
+          {!isApprover && (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 text-slate-500 hover:text-[#0066CC] transition-colors relative"
+              title="แนบรูปถ่ายใบนัดแพทย์หรือแชทผู้ปกครองจากเครื่อง"
+            >
+              <Paperclip className="w-5 h-5 -rotate-45" />
+            </button>
+          )}
 
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="พิมพ์คุยกับน้องเกต AI เช่น ขอออกไปไหน ตอนเทียง วันไหน..."
+            placeholder={
+              isApprover
+                ? 'พิมพ์ "อนุมัติ", "ไม่อนุมัติ" หรือสอบถามระบบได้เลย...'
+                : 'พิมพ์คุยกับน้องเกต AI เช่น ขอออกไปไหน ตอนเทียง วันไหน...'
+            }
             className="flex-1 py-2.5 px-4 bg-slate-100 border border-slate-200/60 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC]/20 focus:border-[#0066CC] transition-all"
           />
 
