@@ -28,6 +28,35 @@ export function getDb(): DatabaseSync {
     dbInstance.exec(schemaSql);
   }
 
+  // Safe migrations for newly added columns if table already exists
+  try {
+    dbInstance.exec(`ALTER TABLE leave_requests ADD COLUMN is_return_required INTEGER NOT NULL DEFAULT 1;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE leave_requests ADD COLUMN trip_stage TEXT DEFAULT 'not_started';`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE leave_requests ADD COLUMN dest_arrived_at TEXT;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE leave_requests ADD COLUMN return_arrived_at TEXT;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE leave_requests ADD COLUMN current_lat REAL;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE leave_requests ADD COLUMN current_lng REAL;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE users ADD COLUMN home_lat REAL;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE users ADD COLUMN home_lng REAL;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE users ADD COLUMN home_address TEXT;`);
+  } catch {}
+
   return dbInstance;
 }
 

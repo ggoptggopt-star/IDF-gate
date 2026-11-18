@@ -15,6 +15,7 @@ export interface ChatSlots {
   allowed_end_time?: string | null;
   attachment_path?: string | null;
   attachment_prompted?: boolean;
+  is_return_required?: number;
 }
 
 const SYSTEM_INSTRUCTION = `
@@ -326,34 +327,44 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
         }
 
         // 3. Destination & Category & Reason
-        if (text.includes('แพทย์') || text.includes('หมอ') || text.includes('ป่วย') || text.includes('โรงพยาบาล') || text.includes('รพ.') || text.includes('โรงบาล')) {
+        if (text.includes('บ้าน') || text.includes('กลับบ้าน') || text.includes('ที่พัก') || text.includes('หอพัก')) {
+          slots.category = 'personal';
+          slots.destination_name = 'บ้านพักอาศัย';
+          slots.is_return_required = 0; // กลับบ้าน ไม่ต้องกลับวิทยาลัย
+          if (!slots.reason) slots.reason = 'ขอกลับบ้านพักอาศัย';
+        } else if (text.includes('แพทย์') || text.includes('หมอ') || text.includes('ป่วย') || text.includes('โรงพยาบาล') || text.includes('รพ.') || text.includes('โรงบาล')) {
           slots.category = 'medical';
           slots.destination_name = 'โรงพยาบาลองครักษ์';
           slots.destination_lat = 14.1350;
           slots.destination_lng = 100.9920;
+          slots.is_return_required = 1;
           if (!slots.reason) slots.reason = 'ไปพบแพทย์ตามนัดที่โรงพยาบาลองครักษ์';
         } else if (text.includes('อำเภอ') || text.includes('บัตรประชาชน') || text.includes('ว่าการ')) {
           slots.category = 'personal';
           slots.destination_name = 'ที่ว่าการอำเภอองครักษ์';
           slots.destination_lat = 14.1205;
           slots.destination_lng = 100.9902;
+          slots.is_return_required = 1;
           if (!slots.reason) slots.reason = 'ทำธุระจำเป็นที่ว่าการอำเภอองครักษ์';
         } else if (text.includes('หอประชุม') || text.includes('แผนก') || text.includes('โครงงาน') || text.includes('อุปกรณ์')) {
           slots.category = 'department';
           slots.destination_name = 'หอประชุมใหญ่วิทยาลัยการอาชีพองครักษ์';
           slots.destination_lat = 14.1288;
           slots.destination_lng = 100.9980;
+          slots.is_return_required = 1;
           if (!slots.reason) slots.reason = 'ไปเตรียมสถานที่และอุปกรณ์นำเสนอโครงงาน';
         } else if (text.includes('ผู้ปกครอง') || text.includes('รับกลับ') || text.includes('แม่มารับ') || text.includes('พ่อมารับ')) {
           slots.category = 'parent_pickup';
           slots.destination_name = 'เดินทางกลับที่พักพร้อมผู้ปกครอง';
           slots.destination_lat = 14.1285;
           slots.destination_lng = 100.9985;
+          slots.is_return_required = 0;
           if (!slots.reason) slots.reason = 'ผู้ปกครองเดินทางมารับกลับบ้านก่อนเวลา';
         } else if (text.length > 3 && !slots.destination_name && !isNoAttachment && !parsedDate && !parsedTime) {
           slots.destination_name = text;
           slots.destination_lat = 14.1285;
           slots.destination_lng = 100.9985;
+          slots.is_return_required = 1;
           if (!slots.reason) slots.reason = text;
           if (!slots.category) slots.category = 'personal';
         }
@@ -365,18 +376,30 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
 
         // Check missing slots strictly:
         const missing: string[] = [];
+        if (slots.destination_name === 'บ้านพักอาศัย' && !slots.destination_lat) {
+          missing.push('home_pin');
+        }
         if (!slots.destination_name) missing.push('destination');
         if (!slots.reason || !slots.category) missing.push('reason');
         if (!slots.leave_date) missing.push('date');
         if (!slots.allowed_start_time) missing.push('start_time');
-        // Crucial Rule: If start_time exists but end_time is missing, ask for return_time!
-        if (slots.allowed_start_time && !slots.allowed_end_time) missing.push('return_time');
+        
+        // Crucial Rule: If start_time exists but end_time is missing, ask for return_time (only if return is required!)
+        if (slots.allowed_start_time && !slots.allowed_end_time) {
+          if (slots.is_return_required === 0) {
+            slots.allowed_end_time = '23:59';
+          } else {
+            missing.push('return_time');
+          }
+        }
 
         const hasMainSlots = missing.length === 0;
 
         if (!hasMainSlots) {
           let reply = '';
-          if (missing.includes('destination') && missing.includes('reason')) {
+          if (missing.includes('home_pin')) {
+            reply = `รับทราบครับว่าขอกลับบ้านพักอาศัย 🏠\nกรุณาเลือกหรือแตะปักหมุดตำแหน่งบ้านของคุณบนแผนที่ด้านล่าง เพื่อบันทึกพิกัดความปลอดภัยของวิทยาลัยครับ`;
+          } else if (missing.includes('destination') && missing.includes('reason')) {
             reply = 'รับเรื่องขออนุญาตครับ ไม่ทราบว่าต้องการออกไปที่ไหน และไปทำธุระอะไรครับ?';
           } else if (missing.includes('start_time')) {
             reply = `รับทราบครับ (${slots.destination_name || 'นอกวิทยาลัย'}) ต้องการขอออกช่วงเวลาใดครับ? (เช่น ตอนเที่ยง, ช่วงบ่าย, หรือระบุเวลาออก)`;
@@ -476,10 +499,12 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
         INSERT INTO leave_requests (
           id, request_code, student_id, course_id, category, reason, destination_name, destination_lat, destination_lng, attachment_path,
           leave_date, allowed_start_time, allowed_end_time, current_step, overall_status,
+          is_return_required, trip_stage,
           step1_teacher_id, step2_advisor_id, step3_dept_head_id, step4_discipline_id, step5_deputy_id
         ) VALUES (
           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
           ?, ?, ?, 1, 'pending',
+          ?, 'not_started',
           ?, ?, ?, ?, ?
         )
       `,
@@ -488,6 +513,7 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
         finalSlots.destination_name, finalSlots.destination_lat || 14.1285, finalSlots.destination_lng || 100.9985,
         finalSlots.attachment_path || null,
         actualLeaveDate, finalSlots.allowed_start_time, finalSlots.allowed_end_time,
+        finalSlots.is_return_required !== undefined ? finalSlots.is_return_required : 1,
         matchedCourse?.teacher_id || 'user-t-atthamed',
         student?.advisor_teacher_id || 'user-t-atthamed',
         student?.head_teacher_id || 'user-head-pattana',

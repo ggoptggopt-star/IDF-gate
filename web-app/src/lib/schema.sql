@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT,
     avatar_url TEXT,
     push_subscription TEXT,
+    home_lat REAL,
+    home_lng REAL,
+    home_address TEXT,
     pdpa_consented INTEGER NOT NULL DEFAULT 0,
     pdpa_consented_at TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
@@ -80,12 +83,19 @@ CREATE TABLE IF NOT EXISTS leave_requests (
     current_step INTEGER NOT NULL DEFAULT 1 CHECK(current_step BETWEEN 1 AND 6),
     overall_status TEXT NOT NULL DEFAULT 'pending' CHECK(overall_status IN ('pending', 'approved', 'rejected', 'completed_exit', 'returned', 'expired')),
     
-    -- GPS Destination Check-in
+    -- GPS Destination Check-in & Rider Trip Tracking
     checkin_lat REAL,
     checkin_lng REAL,
     checkin_at TEXT,
     checkin_distance_m REAL,
     checkin_verified INTEGER NOT NULL DEFAULT 0,
+    
+    is_return_required INTEGER NOT NULL DEFAULT 1,
+    trip_stage TEXT DEFAULT 'not_started' CHECK(trip_stage IN ('not_started', 'heading_to_dest', 'at_dest', 'heading_back', 'completed')),
+    dest_arrived_at TEXT,
+    return_arrived_at TEXT,
+    current_lat REAL,
+    current_lng REAL,
 
     -- 5-Tier Approval Steps
     step1_teacher_id TEXT REFERENCES users(id),
@@ -131,6 +141,18 @@ CREATE TABLE IF NOT EXISTS gate_exit_logs (
     trigger_type TEXT NOT NULL DEFAULT 'ai_auto' CHECK(trigger_type IN ('ai_auto', 'guard_manual')),
     triggered_by_guard_id TEXT REFERENCES users(id),
     gate_opened_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+-- 8. พิกัดการเดินทางสดสไตล์ไรเดอร์ (Real-Time GPS Ping)
+CREATE TABLE IF NOT EXISTS live_locations (
+    id TEXT PRIMARY KEY,
+    request_id TEXT REFERENCES leave_requests(id),
+    student_id TEXT REFERENCES users(id),
+    lat REAL NOT NULL,
+    lng REAL NOT NULL,
+    speed REAL,
+    heading REAL,
+    recorded_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 -- Index เพื่อความรวดเร็วในการ Query

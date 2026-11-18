@@ -3,6 +3,7 @@ import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
 import DemoRoleSwitcher from '@/components/DemoRoleSwitcher';
 import BottomNav from '@/components/BottomNav';
+import PdpaGpsModal from '@/components/PdpaGpsModal';
 
 export const metadata: Metadata = {
   title: 'Smart Gate Pass AI — วิทยาลัยการอาชีพองครักษ์ (OICEC)',
@@ -25,6 +26,9 @@ export default function RootLayout({
         <AuthProvider>
           {/* Top Demo Bar for Easy Presentation & Grading */}
           <DemoRoleSwitcher />
+
+          {/* 1-Step PDPA Consent & GPS Activation Modal */}
+          <PdpaGpsModal />
 
           {/* Mobile-First Centered Container */}
           <div className="max-w-md mx-auto min-h-screen bg-[#F4F7FB] shadow-2xl relative flex flex-col pb-20">

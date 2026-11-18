@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { GateExitLog } from '@/types';
 import {
@@ -21,9 +22,11 @@ import {
   RefreshCw,
   ExternalLink,
   Clock,
+  Navigation,
 } from 'lucide-react';
 
 export default function GatePage() {
+  const router = useRouter();
   const { user } = useAuth();
 
   // Webcam & AI state
@@ -40,6 +43,7 @@ export default function GatePage() {
     message: string;
     studentName?: string;
     requestCode?: string;
+    requestId?: string;
     similarityScore?: number;
   } | null>(null);
 
@@ -177,11 +181,19 @@ export default function GatePage() {
           message: data.message,
           studentName: data.student.full_name,
           requestCode: data.request.request_code,
+          requestId: data.request.id,
           similarityScore: Math.round(data.similarity_score * 1000) / 10,
         });
 
         triggerGateOpen(data.student.full_name, data.request.request_code);
         await fetchLogs();
+
+        // If exit, navigate to Rider Live Trip Mode automatically
+        if (selectedDirection === 'exit' && data.request.id) {
+          setTimeout(() => {
+            router.push(`/trip/${data.request.id}`);
+          }, 2400);
+        }
       } else {
         // Denied
         setScanResult({
@@ -390,6 +402,26 @@ export default function GatePage() {
             </div>
           )}
         </div>
+
+        {/* Rider Live Trip Mode Link if authorized for exit */}
+        {scanResult?.authorized && scanResult.requestId && selectedDirection === 'exit' && (
+          <div className="mt-2.5 p-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg flex items-center justify-between animate-fadeIn">
+            <div className="flex items-center gap-2">
+              <Navigation className="w-5 h-5 animate-pulse text-emerald-200" />
+              <div className="text-left">
+                <div className="font-bold text-xs">สแกนผ่านเรียบร้อย!</div>
+                <div className="text-[10px] text-emerald-100">กำลังพาเข้าหน้า Rider Trip Mode ใน 2 วินาที...</div>
+              </div>
+            </div>
+            <Link
+              href={`/trip/${scanResult.requestId}`}
+              className="px-3 py-1.5 rounded-xl bg-white text-emerald-800 font-bold text-xs shadow-sm hover:bg-emerald-50 active:scale-95 transition-all flex items-center gap-1 shrink-0"
+            >
+              <span>เปิดทันที</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        )}
 
         {/* Scan Action Button */}
         <div className="mt-3">

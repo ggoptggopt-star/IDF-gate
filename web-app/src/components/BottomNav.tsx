@@ -5,11 +5,11 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Home, MessageSquare, ScanFace, User } from 'lucide-react';
 
-export default function BottomNav() {
+function BottomNavContent() {
   const pathname = usePathname();
 
-  // Hide bottom nav on login page
-  if (pathname === '/login') {
+  // Hide bottom nav on login or live trip pages
+  if (pathname === '/login' || pathname.startsWith('/trip')) {
     return null;
   }
 
@@ -46,5 +46,13 @@ export default function BottomNav() {
         })}
       </div>
     </nav>
+  );
+}
+
+export default function BottomNav() {
+  return (
+    <React.Suspense fallback={null}>
+      <BottomNavContent />
+    </React.Suspense>
   );
 }

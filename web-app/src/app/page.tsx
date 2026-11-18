@@ -30,8 +30,11 @@ export default function HomePage() {
 
   const isApprover = user && ['subject_teacher', 'advisor', 'dept_head', 'discipline', 'deputy_director', 'admin'].includes(user.role);
 
-  // Active pass is the most recent approved request
-  const activePass = requests.find((r) => r.overall_status === 'approved');
+  // Active pass is the most recent approved or exiting request
+  const activePass = requests.find((r) => 
+    r.overall_status === 'approved' || 
+    (r.overall_status === 'completed_exit' && r.trip_stage !== 'completed')
+  );
 
   useEffect(() => {
     async function loadRequests() {
@@ -162,18 +165,34 @@ export default function HomePage() {
                     อนุมัติโดย: ครูอรรถเมธ (ที่ปรึกษา) & รอง ผอ.
                   </p>
                   <p className="text-xs font-semibold text-emerald-300 flex items-center gap-1 mt-0.5">
-                    <span>สถานะไม้กั้น:</span>
-                    <span>พร้อมสแกนใบหน้า</span>
+                    <span>สถานะ:</span>
+                    <span>
+                      {activePass.overall_status === 'completed_exit'
+                        ? 'กำลังเดินทาง (Rider Mode)'
+                        : 'พร้อมสแกนใบหน้าเปิดไม้กั้น'}
+                    </span>
                   </p>
                 </div>
 
-                <Link
-                  href="/gate"
-                  className="bg-white text-[#0066CC] hover:bg-blue-50 px-3.5 py-2 rounded-2xl text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
-                >
-                  <ScanFace className="w-4 h-4 text-[#0066CC]" />
-                  <span>สแกนเปิดไม้กั้น</span>
-                </Link>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/trip/${activePass.id}`}
+                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 px-3 py-2 rounded-2xl text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                  >
+                    <span>หน้าเดินทางสด</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+
+                  {activePass.overall_status === 'approved' && (
+                    <Link
+                      href="/gate"
+                      className="bg-white text-[#0066CC] hover:bg-blue-50 px-3 py-2 rounded-2xl text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                    >
+                      <ScanFace className="w-4 h-4 text-[#0066CC]" />
+                      <span>สแกนไม้กั้น</span>
+                    </Link>
+                  )}
+                </div>
               </div>
             </div>
           ) : (

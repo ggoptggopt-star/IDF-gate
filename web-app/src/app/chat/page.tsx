@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { LeaveRequest } from '@/types';
+import ChatMapPicker from '@/components/ChatMapPicker';
 
 export interface ChatSlots {
   leave_date?: string | null;
@@ -856,6 +857,26 @@ function ChatContent() {
             </div>
           );
         })}
+
+        {/* Home Pin Picker Card in Chat */}
+        {!isApprover && (missingSlots.includes('home_pin') || (currentSlots.destination_name === 'บ้านพักอาศัย' && !currentSlots.destination_lat)) && (
+          <div className="my-2 px-1 animate-fadeIn">
+            <ChatMapPicker
+              onSelect={(loc) => {
+                const updated = {
+                  ...currentSlots,
+                  destination_name: 'บ้านพักอาศัย',
+                  destination_lat: loc.lat,
+                  destination_lng: loc.lng,
+                  is_return_required: 0,
+                };
+                setCurrentSlots(updated);
+                setMissingSlots((prev) => prev.filter((s) => s !== 'home_pin'));
+                handleSend(undefined, false, undefined, `ปักหมุดบ้านพักอาศัยเรียบร้อยครับ (พิกัด ${loc.lat}, ${loc.lng})`);
+              }}
+            />
+          </div>
+        )}
 
         {/* AI Typing Indicator */}
         {isSubmitting && (

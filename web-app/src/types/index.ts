@@ -21,6 +21,9 @@ export interface User {
   group_code?: string | null;
   level?: string | null;
   department_name?: string | null;
+  home_lat?: number | null;
+  home_lng?: number | null;
+  home_address?: string | null;
   pdpa_consented?: number;
   pdpa_consented_at?: string | null;
 }
@@ -83,6 +86,14 @@ export interface LeaveRequest {
   checkin_at?: string | null;
   checkin_distance_m?: number | null;
   checkin_verified?: number;
+
+  // Rider-Style Trip Tracking
+  is_return_required?: number;
+  trip_stage?: 'not_started' | 'heading_to_dest' | 'at_dest' | 'heading_back' | 'completed';
+  dest_arrived_at?: string | null;
+  return_arrived_at?: string | null;
+  current_lat?: number | null;
+  current_lng?: number | null;
 
   step1_teacher_id?: string | null;
   step1_status?: string | null;
