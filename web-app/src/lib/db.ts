@@ -56,6 +56,27 @@ export function getDb(): DatabaseSync {
   try {
     dbInstance.exec(`ALTER TABLE users ADD COLUMN home_address TEXT;`);
   } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE users ADD COLUMN is_face_enrolled INTEGER DEFAULT 0;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE users ADD COLUMN face_enrolled_at TEXT;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE face_embeddings ADD COLUMN snapshot_straight TEXT;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE face_embeddings ADD COLUMN snapshot_left TEXT;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE face_embeddings ADD COLUMN snapshot_right TEXT;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE face_embeddings ADD COLUMN snapshot_smile TEXT;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE face_embeddings ADD COLUMN liveness_score REAL DEFAULT 0.985;`);
+  } catch {}
 
   return dbInstance;
 }

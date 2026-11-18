@@ -3,7 +3,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { ScanFace, Lock, User, ShieldCheck, MessageCircle, ArrowRight, Camera, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ScanFace, Lock, User, ShieldCheck, MessageCircle, ArrowRight, Camera, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
+import BankingFaceKycModal from '@/components/BankingFaceKycModal';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,6 +27,7 @@ export default function LoginPage() {
   const [enrollStudentCode, setEnrollStudentCode] = useState('6731901001');
   const [enrollStep, setEnrollStep] = useState(1);
   const [enrollSuccess, setEnrollSuccess] = useState(false);
+  const [showBankingKycModal, setShowBankingKycModal] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -251,17 +253,11 @@ export default function LoginPage() {
 
             <button
               type="button"
-              onClick={() => {
-                setEnrollSuccess(true);
-                setTimeout(() => {
-                  setEnrollSuccess(false);
-                  setActiveTab('login');
-                }, 1500);
-              }}
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs rounded-2xl flex items-center justify-center gap-2"
+              onClick={() => setShowBankingKycModal(true)}
+              className="w-full py-3.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-bold text-xs rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-blue-500/25 active:scale-[0.98] transition-all"
             >
-              <Camera className="w-4 h-4" />
-              <span>บันทึกภาพลงทะเบียนใบหน้า</span>
+              <Sparkles className="w-4 h-4 text-cyan-200 animate-spin" />
+              <span>เริ่มสแกน e-KYC (หันซ้าย-ขวา-ยิ้ม-กะพริบตา)</span>
             </button>
 
             {enrollSuccess && (
@@ -358,6 +354,18 @@ export default function LoginPage() {
           </div>
         </div>
       )}
+
+      {/* Banking Face e-KYC Modal */}
+      <BankingFaceKycModal
+        isOpen={showBankingKycModal}
+        onClose={() => setShowBankingKycModal(false)}
+        userId={users.find((u) => u.username === enrollStudentCode)?.id || 'user-stu-akkaracha'}
+        studentName={users.find((u) => u.username === enrollStudentCode)?.full_name || 'นายอัครชา เปมะวิภาต'}
+        onSuccess={() => {
+          setShowBankingKycModal(false);
+          setActiveTab('login');
+        }}
+      />
     </div>
   );
 }

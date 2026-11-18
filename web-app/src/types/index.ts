@@ -24,6 +24,8 @@ export interface User {
   home_lat?: number | null;
   home_lng?: number | null;
   home_address?: string | null;
+  is_face_enrolled?: number;
+  face_enrolled_at?: string | null;
   pdpa_consented?: number;
   pdpa_consented_at?: string | null;
 }
