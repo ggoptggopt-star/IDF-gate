@@ -44,3 +44,5 @@ gate_logs/
 Thumbs.db
 .vscode/
 .idea/
+cloudflared.exe
+*.exe
