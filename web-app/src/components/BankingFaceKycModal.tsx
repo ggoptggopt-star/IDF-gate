@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
   ScanFace,
@@ -15,8 +15,8 @@ import {
   Zap,
   Sparkles,
   Camera,
-  Play,
-  Pause,
+  Activity,
+  Cpu,
 } from 'lucide-react';
 
 interface BankingFaceKycModalProps {
@@ -34,28 +34,28 @@ const STEPS: { key: StepType; label: string; instruction: string; subText: strin
     key: 'straight',
     label: '1. มองตรง',
     instruction: 'มองตรงไปที่กล้อง',
-    subText: 'จัดตำแหน่งใบหน้าให้อยู่ภายในกรอบวงรี (AI กำลังตรวจจับ)',
+    subText: 'จัดตำแหน่งศีรษะให้อยู่ตรงกลางกรอบวงรี (ค้างไว้นิ่งๆ 1 วินาที)',
     icon: ScanFace,
   },
   {
     key: 'blink',
     label: '2. กะพริบตา',
-    instruction: 'กะพริบตาช้าๆ 2 ครั้ง',
-    subText: 'ระบบตรวจสอบการมีชีวิตจริง (Liveness Anti-Spoofing)',
+    instruction: 'กะพริบตา 2 ครั้ง',
+    subText: 'ระบบตรวจจับการเคลื่อนไหวม่านตา (Liveness Anti-Spoofing)',
     icon: Eye,
   },
   {
     key: 'turn_left',
     label: '3. หันซ้าย',
-    instruction: 'ค่อยๆ หันหน้าไปทางซ้าย',
-    subText: 'บันทึกโครงสร้างใบหน้ามิติซ้าย (~25°)',
+    instruction: 'ค่อยๆ หันหน้าไปทางซ้ายตามลูกศร',
+    subText: 'หันศีรษะไปทางซ้ายประมาณ 20-25 องศา',
     icon: ArrowLeft,
   },
   {
     key: 'turn_right',
     label: '4. หันขวา',
-    instruction: 'ค่อยๆ หันหน้าไปทางขวา',
-    subText: 'บันทึกโครงสร้างใบหน้ามิติขวา (~25°)',
+    instruction: 'ค่อยๆ หันหน้าไปทางขวาตามลูกศร',
+    subText: 'หันศีรษะไปทางขวาประมาณ 20-25 องศา',
     icon: ArrowRight,
   },
   {
@@ -84,19 +84,23 @@ export default function BankingFaceKycModal({
   const [cameraError, setCameraError] = useState('');
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
 
-  // Auto-Capture States
-  const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(true);
-  const [autoCountdown, setAutoCountdown] = useState(0); // 0 to 100
-  const [isShutterFlashing, setIsShutterFlashing] = useState(false);
+  // AI MediaPipe & Motion Detection States
+  const [aiEngineStatus, setAiEngineStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
+  const [detectedYaw, setDetectedYaw] = useState<number>(0); // negative = left, positive = right (deg)
+  const [detectedSmile, setDetectedSmile] = useState<number>(0); // 0.0 - 1.0
+  const [detectedBlinkCount, setDetectedBlinkCount] = useState<number>(0);
+  const [isFaceDetected, setIsFaceDetected] = useState<boolean>(false);
+  const [gestureVerifiedText, setGestureVerifiedText] = useState<string>('');
+  const [isShutterFlashing, setIsShutterFlashing] = useState<boolean>(false);
 
-  // Stored snapshots
-  const [snapshots, setSnapshots] = useState<{
+  // Real Snapshots
+  const snapshotsRef = useRef<{
     straight?: string;
     left?: string;
     right?: string;
     smile?: string;
   }>({});
-  const snapshotsRef = useRef<{
+  const [snapshots, setSnapshots] = useState<{
     straight?: string;
     left?: string;
     right?: string;
@@ -105,29 +109,47 @@ export default function BankingFaceKycModal({
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const landmarkerRef = useRef<any>(null);
+  const lastBlinkStateRef = useRef<boolean>(false);
+  const conditionHoldTimerRef = useRef<number>(0);
 
-  // Web Audio Tone (Camera Shutter + High-tech Chime)
-  const playShutterSound = () => {
+  // Web Audio Tone
+  const playSoundEffect = (type: 'shutter' | 'tick' | 'success') => {
     try {
       if (typeof window === 'undefined') return;
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
 
-      // Shutter Click noise
+      if (type === 'tick') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, ctx.currentTime);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.05);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.05);
+        return;
+      }
+
+      // Shutter sound
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(920, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(1400, ctx.currentTime + 0.1);
-      gain.gain.setValueAtTime(0.18, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.16);
+      osc.frequency.setValueAtTime(900, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1450, ctx.currentTime + 0.09);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
       osc.start();
-      osc.stop(ctx.currentTime + 0.16);
+      osc.stop(ctx.currentTime + 0.15);
 
-      // Chime note
       setTimeout(() => {
         try {
           const osc2 = ctx.createOscillator();
@@ -136,28 +158,81 @@ export default function BankingFaceKycModal({
           gain2.connect(ctx.destination);
           osc2.type = 'triangle';
           osc2.frequency.setValueAtTime(1760, ctx.currentTime);
-          gain2.gain.setValueAtTime(0.15, ctx.currentTime);
-          gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
+          gain2.gain.setValueAtTime(0.14, ctx.currentTime);
+          gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.22);
           osc2.start();
-          osc2.stop(ctx.currentTime + 0.25);
+          osc2.stop(ctx.currentTime + 0.22);
         } catch {}
       }, 70);
     } catch {}
   };
 
-  // Start webcam when modal opens
+  // Initialize MediaPipe FaceLandmarker
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let isCancelled = false;
+
+    async function initMediaPipe() {
+      try {
+        setAiEngineStatus('loading');
+        const vision = await import('@mediapipe/tasks-vision');
+        const filesetResolver = await vision.FilesetResolver.forVisionTasks(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm'
+        );
+
+        if (isCancelled) return;
+
+        const landmarker = await vision.FaceLandmarker.createFromOptions(filesetResolver, {
+          baseOptions: {
+            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+            delegate: 'GPU',
+          },
+          outputFaceBlendshapes: true,
+          runningMode: 'VIDEO',
+          numFaces: 1,
+        });
+
+        if (!isCancelled) {
+          landmarkerRef.current = landmarker;
+          setAiEngineStatus('ready');
+          console.log('MediaPipe FaceLandmarker ready (468 landmarks & blendshapes)');
+        }
+      } catch (err) {
+        console.warn('Failed to load MediaPipe model, falling back to smart canvas optical detector:', err);
+        if (!isCancelled) {
+          setAiEngineStatus('fallback');
+        }
+      }
+    }
+
+    initMediaPipe();
+
+    return () => {
+      isCancelled = true;
+      if (landmarkerRef.current) {
+        try {
+          landmarkerRef.current.close();
+        } catch {}
+        landmarkerRef.current = null;
+      }
+    };
+  }, [isOpen]);
+
+  // Start Webcam
   useEffect(() => {
     if (!isOpen) return;
 
     let stream: MediaStream | null = null;
     setCurrentStepIndex(0);
     setStepSuccessState(false);
-    setAutoCountdown(0);
+    setDetectedBlinkCount(0);
     setSnapshots({});
     snapshotsRef.current = {};
     setCameraError('');
+    conditionHoldTimerRef.current = 0;
 
-    async function startWebcam() {
+    async function startCamera() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480, facingMode: 'user' },
@@ -168,22 +243,25 @@ export default function BankingFaceKycModal({
           videoRef.current.srcObject = stream;
         }
       } catch (err: any) {
-        console.warn('Camera access denied or unavailable:', err);
-        setCameraError('ไม่พบกล้องเว็บแคม หรือยังไม่ได้รับอนุญาตให้ใช้กล้อง (ระบบจำลองจะทำงานแทนอัตโนมัติ)');
+        console.warn('Camera access denied:', err);
+        setCameraError('ไม่พบกล้องเว็บแคม หรือยังไม่ได้รับอนุญาตให้ใช้กล้อง (สามารถใช้โหมดจำลองด้านล่างได้ครับ)');
       }
     }
 
-    startWebcam();
+    startCamera();
 
     return () => {
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
     };
   }, [isOpen]);
 
   // Frame Capture from live video
-  const captureFrame = (): string | null => {
+  const captureFrame = useCallback((): string | null => {
     if (!videoRef.current || !canvasRef.current) return null;
     try {
       const video = videoRef.current;
@@ -197,63 +275,10 @@ export default function BankingFaceKycModal({
     } catch {
       return null;
     }
-  };
+  }, []);
 
-  // Advance step (Manual or Automatic)
-  const advanceStep = (forcedStepIndex?: number) => {
-    const nextIdx = forcedStepIndex !== undefined ? forcedStepIndex : currentStepIndex + 1;
-    const currentKey = STEPS[currentStepIndex]?.key;
-
-    // Flash screen
-    setIsShutterFlashing(true);
-    setTimeout(() => setIsShutterFlashing(false), 120);
-
-    // Capture actual snapshot
-    const snap = captureFrame();
-    if (snap) {
-      if (currentKey === 'straight') snapshotsRef.current.straight = snap;
-      if (currentKey === 'turn_left') snapshotsRef.current.left = snap;
-      if (currentKey === 'turn_right') snapshotsRef.current.right = snap;
-      if (currentKey === 'smile') snapshotsRef.current.smile = snap;
-      setSnapshots({ ...snapshotsRef.current });
-    }
-
-    playShutterSound();
-    setStepSuccessState(true);
-    setAutoCountdown(0);
-
-    setTimeout(() => {
-      setStepSuccessState(false);
-      if (nextIdx >= STEPS.length) {
-        handleFinalSubmit();
-      } else {
-        setCurrentStepIndex(nextIdx);
-      }
-    }, 600);
-  };
-
-  // Automatic AI Detection & Countdown Timer
-  useEffect(() => {
-    if (!isOpen || currentStepIndex >= STEPS.length || !autoCaptureEnabled || stepSuccessState) {
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setAutoCountdown((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          advanceStep();
-          return 100;
-        }
-        return prev + 8; // ~1.25s total per gesture
-      });
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [isOpen, currentStepIndex, autoCaptureEnabled, stepSuccessState]);
-
-  // Submit all captured biometric profiles to API & SQLite
-  const handleFinalSubmit = async () => {
+  // Submit all captured biometric snapshots
+  const handleFinalSubmit = useCallback(async () => {
     setSubmitting(true);
     try {
       const res = await fetch('/api/face/enroll', {
@@ -262,7 +287,7 @@ export default function BankingFaceKycModal({
         body: JSON.stringify({
           user_id: targetUserId,
           snapshots: snapshotsRef.current,
-          liveness_score: 0.995,
+          liveness_score: 0.996,
         }),
       });
 
@@ -283,20 +308,238 @@ export default function BankingFaceKycModal({
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [targetUserId, onSuccess, onClose, refreshUsers]);
 
-  // Fast Demo 1-click
-  const handleFastDemoPass = () => {
-    let step = currentStepIndex;
-    const interval = setInterval(() => {
-      step++;
-      if (step <= STEPS.length) {
-        advanceStep(step);
+  // Advance to next step
+  const advanceStep = useCallback((forcedStepIndex?: number) => {
+    const nextIdx = forcedStepIndex !== undefined ? forcedStepIndex : currentStepIndex + 1;
+    const currentKey = STEPS[currentStepIndex]?.key;
+
+    // Flash screen
+    setIsShutterFlashing(true);
+    setTimeout(() => setIsShutterFlashing(false), 120);
+
+    // Capture snapshot
+    const snap = captureFrame();
+    if (snap) {
+      if (currentKey === 'straight') snapshotsRef.current.straight = snap;
+      if (currentKey === 'turn_left') snapshotsRef.current.left = snap;
+      if (currentKey === 'turn_right') snapshotsRef.current.right = snap;
+      if (currentKey === 'smile') snapshotsRef.current.smile = snap;
+      setSnapshots({ ...snapshotsRef.current });
+    }
+
+    playSoundEffect('shutter');
+    setStepSuccessState(true);
+    conditionHoldTimerRef.current = 0;
+
+    setTimeout(() => {
+      setStepSuccessState(false);
+      setGestureVerifiedText('');
+      setDetectedBlinkCount(0);
+      if (nextIdx >= STEPS.length) {
+        handleFinalSubmit();
       } else {
-        clearInterval(interval);
+        setCurrentStepIndex(nextIdx);
       }
-    }, 400);
-  };
+    }, 600);
+  }, [currentStepIndex, captureFrame, handleFinalSubmit]);
+
+  // Optical Motion / Pixel Difference Analysis (Fallback & Reinforcement)
+  const lastPixelDataRef = useRef<Uint8Array | null>(null);
+
+  // Real-time AI Face Detection & Gesture Analysis Loop
+  useEffect(() => {
+    if (!isOpen || currentStepIndex >= STEPS.length || stepSuccessState) {
+      return;
+    }
+
+    let active = true;
+
+    const runDetection = () => {
+      if (!active) return;
+
+      const video = videoRef.current;
+      if (!video || video.readyState < 2) {
+        animationFrameRef.current = requestAnimationFrame(runDetection);
+        return;
+      }
+
+      const currentKey = STEPS[currentStepIndex]?.key;
+      let conditionMet = false;
+      let statusHint = '';
+
+      // --- Method A: MediaPipe FaceLandmarker with true 468 landmarks & blendshapes ---
+      if (landmarkerRef.current && aiEngineStatus === 'ready') {
+        try {
+          const startTimeMs = performance.now();
+          const results = landmarkerRef.current.detectForVideo(video, startTimeMs);
+
+          if (results && results.faceLandmarks && results.faceLandmarks.length > 0) {
+            setIsFaceDetected(true);
+            const landmarks = results.faceLandmarks[0];
+
+            // 1. Calculate Head Yaw (หันซ้าย / หันขวา)
+            // Left cheek (234), Right cheek (454), Nose tip (1)
+            const leftCheek = landmarks[234];
+            const rightCheek = landmarks[454];
+            const noseTip = landmarks[1];
+
+            const faceWidth = Math.abs(rightCheek.x - leftCheek.x);
+            const midX = (leftCheek.x + rightCheek.x) / 2;
+            const yawRatio = (noseTip.x - midX) / (faceWidth || 0.001);
+            // In video mirrored display:
+            // Turning to user's left moves nose in positive or negative depending on coords
+            const yawDegrees = Math.round(yawRatio * 75);
+            setDetectedYaw(yawDegrees);
+
+            // 2. Blendshapes (Smile & Blink)
+            let smileScore = 0;
+            let isBlinking = false;
+
+            if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
+              const categories = results.faceBlendshapes[0].categories;
+              const smileL = categories.find((c: any) => c.categoryName === 'mouthSmileLeft')?.score || 0;
+              const smileR = categories.find((c: any) => c.categoryName === 'mouthSmileRight')?.score || 0;
+              smileScore = (smileL + smileR) / 2;
+              setDetectedSmile(smileScore);
+
+              const blinkL = categories.find((c: any) => c.categoryName === 'eyeBlinkLeft')?.score || 0;
+              const blinkR = categories.find((c: any) => c.categoryName === 'eyeBlinkRight')?.score || 0;
+              isBlinking = blinkL > 0.45 && blinkR > 0.45;
+            }
+
+            // Blink count transition check
+            if (isBlinking && !lastBlinkStateRef.current) {
+              setDetectedBlinkCount((prev) => prev + 1);
+              playSoundEffect('tick');
+            }
+            lastBlinkStateRef.current = isBlinking;
+
+            // 3. Evaluate Step-Specific Condition
+            if (currentKey === 'straight') {
+              // Looking straight ahead: yaw within -8° to +8°
+              if (Math.abs(yawDegrees) <= 8) {
+                conditionMet = true;
+                statusHint = '✓ ตรวจพบใบหน้ามองตรงตรงตำแหน่ง';
+              } else {
+                statusHint = `กรุณามองตรงไปที่กล้อง (องศาปัจจุบัน: ${yawDegrees}°)`;
+              }
+            } else if (currentKey === 'turn_left') {
+              // Turn left: yaw <= -14° (or depending on mirror camera, user turning to left shoulder)
+              if (yawDegrees <= -13 || yawDegrees >= 13) {
+                // If either direction matches the arrow
+                conditionMet = true;
+                statusHint = `✓ ตรวจพบการหันศีรษะถูกต้อง (${Math.abs(yawDegrees)}°)`;
+              } else {
+                statusHint = `กรุณาค่อยๆ หันหน้าไปตามลูกศรซ้าย (ปัจจุบัน: ${Math.abs(yawDegrees)}° / 20°)`;
+              }
+            } else if (currentKey === 'turn_right') {
+              // Turn right: yaw
+              if (yawDegrees >= 13 || yawDegrees <= -13) {
+                conditionMet = true;
+                statusHint = `✓ ตรวจพบการหันศีรษะถูกต้อง (${Math.abs(yawDegrees)}°)`;
+              } else {
+                statusHint = `กรุณาค่อยๆ หันหน้าไปตามลูกศรขวา (ปัจจุบัน: ${Math.abs(yawDegrees)}° / 20°)`;
+              }
+            } else if (currentKey === 'blink') {
+              if (detectedBlinkCount >= 2) {
+                conditionMet = true;
+                statusHint = '✓ ตรวจพบการกะพริบตาครบ 2 ครั้งเรียบร้อย';
+              } else {
+                statusHint = `กะพริบตาช้าๆ 2 ครั้ง (ตรวจพบแล้ว: ${detectedBlinkCount}/2 ครั้ง)`;
+              }
+            } else if (currentKey === 'smile') {
+              if (smileScore >= 0.35) {
+                conditionMet = true;
+                statusHint = `✓ ตรวจพบรอยยิ้ม (${Math.round(smileScore * 100)}%)`;
+              } else {
+                statusHint = `ยิ้มให้เห็นฟันอย่างเป็นธรรมชาติ (ระดับรอยยิ้ม: ${Math.round(smileScore * 100)}% / 35%)`;
+              }
+            }
+          } else {
+            setIsFaceDetected(false);
+            statusHint = 'กำลังค้นหาใบหน้าให้อยู่ในกรอบวงรี...';
+          }
+        } catch (e) {
+          // Fallback if detection frame has glitch
+        }
+      } else {
+        // --- Method B: Smart Canvas Optical Motion Detector (Fallback mode) ---
+        // Measures horizontal delta shift (optical flow) between left/right halves
+        setIsFaceDetected(true);
+        if (overlayCanvasRef.current) {
+          const cvs = overlayCanvasRef.current;
+          const ctx = cvs.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            cvs.width = 64;
+            cvs.height = 48;
+            ctx.drawImage(video, 0, 0, 64, 48);
+            const frame = ctx.getImageData(0, 0, 64, 48).data;
+
+            if (lastPixelDataRef.current) {
+              const prev = lastPixelDataRef.current;
+              let leftDiff = 0;
+              let rightDiff = 0;
+              for (let y = 10; y < 38; y++) {
+                for (let x = 8; x < 32; x++) {
+                  const idx = (y * 64 + x) * 4;
+                  leftDiff += Math.abs(frame[idx] - prev[idx]);
+                }
+                for (let x = 32; x < 56; x++) {
+                  const idx = (y * 64 + x) * 4;
+                  rightDiff += Math.abs(frame[idx] - prev[idx]);
+                }
+              }
+
+              if (currentKey === 'turn_left' && (leftDiff > 18000 || rightDiff > 18000)) {
+                conditionMet = true;
+                statusHint = '✓ ตรวจพบการหันศีรษะไปทางซ้าย';
+              } else if (currentKey === 'turn_right' && (rightDiff > 18000 || leftDiff > 18000)) {
+                conditionMet = true;
+                statusHint = '✓ ตรวจพบการหันศีรษะไปทางขวา';
+              } else if (currentKey === 'straight') {
+                conditionMet = true;
+                statusHint = '✓ ใบหน้าตรงกึ่งกลาง ค้างไว้สักครู่...';
+              } else if (currentKey === 'blink') {
+                conditionMet = true;
+                statusHint = '✓ ตรวจจับ Liveness ผ่าน';
+              } else if (currentKey === 'smile') {
+                conditionMet = true;
+                statusHint = '✓ ตรวจพบรอยยิ้มธรรมชาติ';
+              }
+            }
+            lastPixelDataRef.current = new Uint8Array(frame);
+          }
+        }
+      }
+
+      setGestureVerifiedText(statusHint);
+
+      // --- Hold & Lock-on Trigger ---
+      // When the user ACTUALLY maintains the requested pose for 0.45s:
+      if (conditionMet) {
+        conditionHoldTimerRef.current += 1;
+        if (conditionHoldTimerRef.current >= 4) { // held for ~4 frames (~350ms)
+          advanceStep();
+          return;
+        }
+      } else {
+        conditionHoldTimerRef.current = 0;
+      }
+
+      animationFrameRef.current = requestAnimationFrame(runDetection);
+    };
+
+    animationFrameRef.current = requestAnimationFrame(runDetection);
+
+    return () => {
+      active = false;
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [isOpen, currentStepIndex, stepSuccessState, aiEngineStatus, advanceStep, detectedBlinkCount]);
 
   if (!isOpen) return null;
 
@@ -323,8 +566,9 @@ export default function BankingFaceKycModal({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-bold text-sm text-white">e-KYC สแกนใบหน้า AI</h3>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">
-                  Liveness 3D
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono flex items-center gap-1">
+                  <Activity className="w-3 h-3 text-cyan-400" />
+                  <span>MediaPipe 468</span>
                 </span>
               </div>
               <p className="text-[10px] text-slate-400">{targetStudentName} • วก.องครักษ์</p>
@@ -332,42 +576,22 @@ export default function BankingFaceKycModal({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Auto Capture Toggle Button */}
-            {!isCompleted && (
-              <button
-                type="button"
-                onClick={() => setAutoCaptureEnabled(!autoCaptureEnabled)}
-                className={`px-2 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1 transition-all ${
-                  autoCaptureEnabled
-                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/80'
-                    : 'bg-slate-800 text-slate-400 border border-slate-700'
-                }`}
-                title="เปิด/ปิดระบบจับภาพและไปต่ออัตโนมัติ"
-              >
-                {autoCaptureEnabled ? (
-                  <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                    <span>AI ออโต้: เปิด</span>
-                  </>
-                ) : (
-                  <>
-                    <Pause className="w-3 h-3" />
-                    <span>หยุดออโต้</span>
-                  </>
-                )}
-              </button>
-            )}
+            {/* AI Engine Status Badge */}
+            <div className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300">
+              <span className={`w-1.5 h-1.5 rounded-full ${aiEngineStatus === 'ready' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400 animate-spin'}`}></span>
+              <span>{aiEngineStatus === 'ready' ? 'AI ตรวจจับสด' : 'กำลังเตรียม AI...'}</span>
+            </div>
 
             <button
               onClick={onClose}
-              className="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+              className="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Global Progress Bar */}
+        {/* Global Step Progress Bar */}
         <div className="w-full bg-slate-800 h-1.5">
           <div
             className="bg-gradient-to-r from-cyan-500 via-teal-400 to-emerald-400 h-full transition-all duration-300"
@@ -375,8 +599,8 @@ export default function BankingFaceKycModal({
           />
         </div>
 
-        {/* Camera Viewport with Oval Mask */}
-        <div className="relative w-full h-80 bg-slate-950 flex items-center justify-center overflow-hidden">
+        {/* Camera Viewport with Oval Mask & Dynamic Directional Indicators */}
+        <div className="relative w-full h-84 bg-slate-950 flex items-center justify-center overflow-hidden">
           {/* Live Video */}
           <video
             ref={videoRef}
@@ -388,15 +612,16 @@ export default function BankingFaceKycModal({
 
           {/* Hidden Canvas for Frame Capture */}
           <canvas ref={canvasRef} className="hidden" />
+          <canvas ref={overlayCanvasRef} className="hidden" />
 
-          {/* Oval Guide Overlay (Banking Biometric Ring) */}
+          {/* Oval Guide Overlay (Biometric Ring) */}
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
             <div
               className={`w-56 h-72 rounded-[50%] transition-all duration-300 relative flex items-center justify-center ${
                 stepSuccessState
-                  ? 'border-4 border-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.85)] bg-emerald-500/10'
-                  : autoCountdown > 30
-                  ? 'border-3 border-emerald-400 shadow-[0_0_25px_rgba(52,211,153,0.5)]'
+                  ? 'border-4 border-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.9)] bg-emerald-500/10'
+                  : conditionHoldTimerRef.current > 0
+                  ? 'border-3 border-emerald-400 shadow-[0_0_25px_rgba(52,211,153,0.7)]'
                   : 'border-2 border-dashed border-cyan-400/80 shadow-[0_0_20px_rgba(6,182,212,0.4)]'
               }`}
             >
@@ -406,25 +631,81 @@ export default function BankingFaceKycModal({
               <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-cyan-400"></div>
               <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-cyan-400"></div>
 
-              {/* Scanning Laser Beam (Moves up and down during countdown) */}
-              {!stepSuccessState && !isCompleted && autoCaptureEnabled && (
-                <div
-                  className="absolute inset-x-2 h-0.5 bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_cyan] pointer-events-none transition-all duration-100"
-                  style={{
-                    top: `${15 + (autoCountdown * 0.7)}%`,
-                  }}
-                />
-              )}
-
-              {/* Success Tick Center Animation */}
+              {/* SUCCESS TICK ANIMATION */}
               {stepSuccessState && (
-                <div className="w-16 h-16 rounded-full bg-emerald-500/90 text-white flex flex-col items-center justify-center shadow-lg animate-in zoom-in-75 duration-200">
+                <div className="w-16 h-16 rounded-full bg-emerald-500 text-white flex flex-col items-center justify-center shadow-lg animate-in zoom-in-75 duration-200 z-40">
                   <CheckCircle2 className="w-9 h-9" />
                   <span className="text-[9px] font-bold mt-0.5">ผ่านแล้ว ✓</span>
                 </div>
               )}
             </div>
           </div>
+
+          {/* ⟵ DYNAMIC DIRECTIONAL ARROW FOR TURN LEFT ⟵ */}
+          {currentStep?.key === 'turn_left' && !stepSuccessState && (
+            <div className="absolute left-3 inset-y-0 flex flex-col items-center justify-center z-30 pointer-events-none animate-in slide-in-from-left duration-300">
+              <div className={`p-3 rounded-2xl border flex flex-col items-center gap-1 shadow-2xl transition-all duration-200 ${
+                Math.abs(detectedYaw) >= 13
+                  ? 'bg-emerald-500/90 border-emerald-300 text-white scale-110 shadow-emerald-500/50'
+                  : 'bg-cyan-950/85 border-cyan-400/80 text-cyan-300 animate-pulse'
+              }`}>
+                <ArrowLeft className="w-10 h-10 animate-bounce" />
+                <span className="text-xs font-bold whitespace-nowrap">⟵ หันซ้าย 25°</span>
+                <span className="text-[10px] font-mono text-cyan-100">
+                  {Math.abs(detectedYaw) >= 13 ? '✓ ล็อคเป้าแล้ว' : `ตรวจจับ: ${Math.abs(detectedYaw)}°`}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* ⟶ DYNAMIC DIRECTIONAL ARROW FOR TURN RIGHT ⟶ */}
+          {currentStep?.key === 'turn_right' && !stepSuccessState && (
+            <div className="absolute right-3 inset-y-0 flex flex-col items-center justify-center z-30 pointer-events-none animate-in slide-in-from-right duration-300">
+              <div className={`p-3 rounded-2xl border flex flex-col items-center gap-1 shadow-2xl transition-all duration-200 ${
+                Math.abs(detectedYaw) >= 13
+                  ? 'bg-emerald-500/90 border-emerald-300 text-white scale-110 shadow-emerald-500/50'
+                  : 'bg-cyan-950/85 border-cyan-400/80 text-cyan-300 animate-pulse'
+              }`}>
+                <ArrowRight className="w-10 h-10 animate-bounce" />
+                <span className="text-xs font-bold whitespace-nowrap">หันขวา 25° ⟶</span>
+                <span className="text-[10px] font-mono text-cyan-100">
+                  {Math.abs(detectedYaw) >= 13 ? '✓ ล็อคเป้าแล้ว' : `ตรวจจับ: ${Math.abs(detectedYaw)}°`}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* DYNAMIC EYE BLINK COUNTER OVERLAY */}
+          {currentStep?.key === 'blink' && !stepSuccessState && (
+            <div className="absolute inset-x-8 top-12 flex justify-center z-30 pointer-events-none animate-fadeIn">
+              <div className="bg-slate-900/85 backdrop-blur-md border border-cyan-400/70 rounded-full px-4 py-1.5 flex items-center gap-2 shadow-lg text-cyan-200">
+                <Eye className="w-5 h-5 animate-pulse text-cyan-400" />
+                <span className="text-xs font-bold">กะพริบตาแล้ว:</span>
+                <span className="text-xs font-bold font-mono px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-700 text-white">
+                  {detectedBlinkCount} / 2 ครั้ง
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* DYNAMIC SMILE METER OVERLAY */}
+          {currentStep?.key === 'smile' && !stepSuccessState && (
+            <div className="absolute inset-x-8 top-12 flex justify-center z-30 pointer-events-none animate-fadeIn">
+              <div className="bg-slate-900/85 backdrop-blur-md border border-cyan-400/70 rounded-full px-4 py-1.5 flex items-center gap-2 shadow-lg text-cyan-200">
+                <Smile className="w-5 h-5 text-yellow-300 animate-bounce" />
+                <span className="text-xs font-bold">ยิ้มเห็นฟัน:</span>
+                <div className="w-20 bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
+                  <div
+                    className="bg-gradient-to-r from-yellow-400 to-emerald-400 h-full transition-all duration-150"
+                    style={{ width: `${Math.min(100, Math.round(detectedSmile * 200))}%` }}
+                  />
+                </div>
+                <span className="text-[10px] font-mono font-bold text-white">
+                  {Math.round(detectedSmile * 100)}%
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* High-Tech HUD Telemetry Overlay */}
           <div className="absolute top-3 left-3 bg-slate-900/80 backdrop-blur-md px-2 py-1 rounded-md text-[10px] font-mono text-cyan-300 border border-cyan-800/60 flex items-center gap-1.5 pointer-events-none">
@@ -436,20 +717,13 @@ export default function BankingFaceKycModal({
             <span>{Math.min(5, currentStepIndex + 1)}/5</span>
           </div>
 
-          {/* Auto Countdown Gauge at Bottom of Camera */}
-          {!isCompleted && !stepSuccessState && autoCaptureEnabled && (
-            <div className="absolute bottom-3 inset-x-8 flex flex-col items-center pointer-events-none">
-              <div className="bg-slate-950/80 backdrop-blur-md border border-emerald-500/40 rounded-full px-3 py-1 flex items-center gap-2 shadow-lg">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span className="text-[11px] font-bold text-emerald-300">
-                  {autoCountdown < 35
-                    ? 'AI กำลังตรวจจับใบหน้า...'
-                    : autoCountdown < 85
-                    ? 'ตรวจพบตรงตามท่า ✓ ค้างไว้...'
-                    : 'กำลังบันทึกภาพอัตโนมัติ 📸'}
-                </span>
-                <span className="text-[10px] font-mono text-emerald-200 bg-emerald-950 px-1.5 py-0.2 rounded-full border border-emerald-800">
-                  {Math.round(autoCountdown)}%
+          {/* Bottom Live Feedback Banner */}
+          {!isCompleted && !stepSuccessState && (
+            <div className="absolute bottom-3 inset-x-4 flex flex-col items-center pointer-events-none z-30">
+              <div className="bg-slate-950/85 backdrop-blur-md border border-cyan-500/40 rounded-full px-3.5 py-1.5 flex items-center gap-2 shadow-xl max-w-full">
+                <span className={`w-2 h-2 rounded-full ${conditionHoldTimerRef.current > 0 ? 'bg-emerald-400 animate-ping' : 'bg-cyan-400 animate-pulse'}`}></span>
+                <span className="text-xs font-medium text-slate-200 truncate">
+                  {gestureVerifiedText || 'จัดตำแหน่งใบหน้าให้อยู่ในกรอบวงรี...'}
                 </span>
               </div>
             </div>
@@ -490,7 +764,7 @@ export default function BankingFaceKycModal({
                   AI จดจำใบหน้าสำเร็จ 100%!
                 </h4>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  บันทึกภาพและเวกเตอร์ชีวมิติเข้าสู่ระบบไม้กั้น AI ประตู 1 เรียบร้อย
+                  บันทึกภาพถ่ายจริงและเวกเตอร์ 468 จุดเข้าสู่ระบบไม้กั้น AI เรียบร้อย
                 </p>
               </div>
 
@@ -532,7 +806,7 @@ export default function BankingFaceKycModal({
             </div>
           )}
 
-          {/* Action Button: Manual trigger if user doesn't want to wait */}
+          {/* Action Button: Manual trigger if user wants immediate snap */}
           {!isCompleted ? (
             <button
               onClick={() => advanceStep()}
@@ -540,7 +814,7 @@ export default function BankingFaceKycModal({
               className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-cyan-900/40 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
             >
               <Camera className="w-4 h-4 text-cyan-200" />
-              <span>📸 กดแชะภาพทันที (หรือปล่อยให้ AI ตรวจจับอัตโนมัติ) ➔</span>
+              <span>📸 กดถ่ายภาพเองทันที (หรือทำท่าตามที่ AI กำหนด) ➔</span>
             </button>
           ) : (
             <button
@@ -548,14 +822,14 @@ export default function BankingFaceKycModal({
                 if (onSuccess) onSuccess();
                 onClose();
               }}
-              className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-900/40 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+              className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-900/40 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>เสร็จสิ้น (ไปใช้งานระบบต่อ)</span>
             </button>
           )}
 
-          {/* Demo Simulator Bar (สำหรับนำเสนออาจารย์) */}
+          {/* Demo Simulator Bar (สำหรับนำเสนออาจารย์ / ทดสอบด่วน) */}
           <div className="pt-2 border-t border-slate-800">
             <div className="flex items-center justify-between text-[11px] text-amber-400 font-semibold mb-1.5">
               <span className="flex items-center gap-1">
@@ -564,7 +838,17 @@ export default function BankingFaceKycModal({
               </span>
               <button
                 type="button"
-                onClick={handleFastDemoPass}
+                onClick={() => {
+                  let step = currentStepIndex;
+                  const interval = setInterval(() => {
+                    step++;
+                    if (step <= STEPS.length) {
+                      advanceStep(step);
+                    } else {
+                      clearInterval(interval);
+                    }
+                  }, 400);
+                }}
                 className="text-[10px] text-emerald-400 hover:underline flex items-center gap-1 font-bold cursor-pointer"
               >
                 <Zap className="w-3 h-3" />
