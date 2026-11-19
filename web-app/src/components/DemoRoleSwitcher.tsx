@@ -13,7 +13,7 @@ export default function DemoRoleSwitcher() {
   const roles = [
     { label: 'นักศึกษา (อัครชา)', id: 'user-stu-akkaracha', badge: 'ปวส.2', icon: User, color: 'bg-blue-600 text-white' },
     { label: '1.ครูรายวิชา (อรรถเมธ)', id: 'user-t-atthamed', badge: 'ขั้น 1', icon: UserCheck, color: 'bg-emerald-600 text-white' },
-    { label: '2.ครูที่ปรึกษา', id: 'user-t-atthamed', badge: 'ขั้น 2', icon: UserCheck, color: 'bg-teal-600 text-white' },
+    { label: '2.ครูที่ปรึกษา (ธนพิสิษฐ์)', id: 'user-t-thanaphisit', badge: 'ขั้น 2', icon: UserCheck, color: 'bg-teal-600 text-white' },
     { label: '3.หัวหน้าแผนก (พัฒนา)', id: 'user-head-pattana', badge: 'ขั้น 3', icon: Building2, color: 'bg-amber-600 text-white' },
     { label: '4.ฝ่ายปกครอง', id: 'user-discipline-01', badge: 'ขั้น 4', icon: Shield, color: 'bg-indigo-600 text-white' },
     { label: '5.รอง ผอ. (ชัยยศ)', id: 'user-deputy-chaiyot', badge: 'ขั้น 5', icon: Award, color: 'bg-purple-600 text-white' },

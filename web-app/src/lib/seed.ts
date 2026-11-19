@@ -43,7 +43,7 @@ export function seedDatabase() {
     1, nowStr
   );
   userStmt.run(
-    'user-t-thanaphisit', 'teacher_thanaphisit', '123456', 'ครูธนพิสิษฐ์ ทาพา', 'subject_teacher',
+    'user-t-thanaphisit', 'teacher_thanaphisit', '123456', 'ครูธนพิสิษฐ์ ทาพา (ครูที่ปรึกษา)', 'advisor',
     null, 'dept-dbt', '083-333-3333', 'thanaphisit@oicec.ac.th',
     'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150',
     1, nowStr

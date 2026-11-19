@@ -93,6 +93,17 @@ function ChatContent() {
     }
   };
 
+  const getRoleTitleForStep = (step: number): string => {
+    switch (step) {
+      case 1: return 'ครูประจำวิชา (ขั้นที่ 1)';
+      case 2: return 'ครูที่ปรึกษา (ขั้นที่ 2)';
+      case 3: return 'หัวหน้าแผนกวิชา ทธด. (ขั้นที่ 3)';
+      case 4: return 'เจ้าหน้าที่งานปกครอง (ขั้นที่ 4)';
+      case 5: return 'รองผู้อำนวยการฝ่ายพัฒนากิจการฯ (ขั้นที่ 5)';
+      default: return 'เจ้าหน้าที่พิจารณา';
+    }
+  };
+
   const getRoleTitle = (role?: string): string => {
     switch (role) {
       case 'subject_teacher': return 'ครูประจำวิชา (ขั้นที่ 1)';
@@ -100,13 +111,14 @@ function ChatContent() {
       case 'dept_head': return 'หัวหน้าแผนกวิชา ทธด. (ขั้นที่ 3)';
       case 'discipline': return 'เจ้าหน้าที่งานปกครอง (ขั้นที่ 4)';
       case 'deputy_director': return 'รองผู้อำนวยการ (ขั้นที่ 5)';
-      case 'guard': return 'เจ้าหน้าที่ รปภ.';
+      case 'guard': return 'เจ้าหน้าที่ รปภ. ประตู 1';
       case 'admin': return 'ผู้ดูแลระบบ';
       default: return 'นักศึกษา';
     }
   };
 
-  const isApprover = user?.role && user.role !== 'student' && user.role !== 'guard';
+  const isGuard = user?.role === 'guard';
+  const isApprover = (user?.role && user.role !== 'student' && user.role !== 'guard') || user?.role === 'admin';
   const userStep = getApproverStep(user?.role);
 
   const scrollToBottom = () => {
@@ -123,18 +135,45 @@ function ChatContent() {
     if (savedKey) setGeminiApiKey(savedKey);
   }, []);
 
-  // Fetch requests based on role (Student vs Approver)
+  // Fetch requests based on role (Student vs Approver vs Guard) with live polling
   useEffect(() => {
-    async function loadRequests() {
+    let isCancelled = false;
+
+    async function loadRequests(isPolling = false) {
       try {
         const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        if (isGuard) {
+          // Guard View
+          const res = await fetch('/api/requests');
+          const data = await res.json();
+          if (data.success && data.requests && !isCancelled) {
+            const allReqs: LeaveRequest[] = data.requests;
+            const approvedReqs = allReqs.filter((r) => r.overall_status === 'approved' || r.synced_to_gate === 1);
+            const latest = approvedReqs[0] || allReqs[0];
+
+            if (latest && !isPolling) {
+              setMessages([
+                {
+                  id: 'msg-guard-welcome',
+                  sender: 'bot',
+                  text: `สวัสดีครับ ${user?.full_name || 'เจ้าหน้าที่ รปภ.'} ประจำป้อมประตู 1 (วิทยาลัยการอาชีพองครักษ์)\n\nระบบ Smart Gate Pass AI เชื่อมโยงบัญชีรายชื่อที่ได้รับอนุมัติเรียบร้อยแล้ว ${approvedReqs.length} รายการครับ\nเมื่อนักศึกษามาถึงหน้ากล้อง AI จะสแกนใบหน้าและส่งสัญญาณเปิดไม้กั้นอัตโนมัติทันทีครับ`,
+                  time: nowTime,
+                  poweredBy: 'Google Gemini AI',
+                  requestCard: latest,
+                },
+              ]);
+            }
+          }
+          return;
+        }
 
         if (isApprover) {
           // Approver view: fetch all requests waiting for this teacher's step
           const res = await fetch('/api/requests');
           const data = await res.json();
 
-          if (data.success && data.requests) {
+          if (data.success && data.requests && !isCancelled) {
             const allReqs: LeaveRequest[] = data.requests;
             const waitingForMe = allReqs.filter((r) => {
               if (r.overall_status !== 'pending') return false;
@@ -144,13 +183,27 @@ function ChatContent() {
 
             setPendingRequests(waitingForMe);
 
+            // If we are polling and messages are already rendered, just update request cards in-place
+            if (isPolling) {
+              setMessages((prev) =>
+                prev.map((m) => {
+                  if (m.requestCard) {
+                    const fresh = allReqs.find((r) => r.id === m.requestCard!.id);
+                    if (fresh) return { ...m, requestCard: fresh };
+                  }
+                  return m;
+                })
+              );
+              return;
+            }
+
             const initialMsgs: ChatMessage[] = [];
 
             if (waitingForMe.length > 0) {
               initialMsgs.push({
                 id: 'msg-approver-welcome',
                 sender: 'bot',
-                text: `สวัสดีครับ ${user?.full_name || 'คุณครู'} (${getRoleTitle(user?.role)})!\n\nระบบ Smart Gate AI มีคำร้องขออนุญาตออกนอกสถานศึกษาของนักศึกษารอการอนุมัติจากท่าน ${waitingForMe.length} รายการครับ:\nท่านสามารถกดปุ่ม [✓ อนุมัติคำขอ] บนการ์ดด้านล่าง หรือพิมพ์คำว่า "อนุมัติ" ในแชทได้ทันทีครับ`,
+                text: `สวัสดีครับ ${user?.full_name || 'คุณครู'} (${getRoleTitle(user?.role)})!\n\nระบบ Smart Gate AI มีคำร้องขออนุญาตออกนอกสถานศึกษาของนักศึกษารอดำเนินการในขั้นของท่าน (${waitingForMe.length} รายการ) ครับ:\nท่านสามารถกดปุ่ม [✓ ${userStep === 5 ? 'อนุมัติขั้นสุดท้าย' : 'อนุมัติส่งต่อ'}] บนการ์ดด้านล่าง หรือพิมพ์คำว่า "อนุมัติ" ในแชทได้ทันทีครับ`,
                 time: nowTime,
                 poweredBy: 'Google Gemini AI',
               });
@@ -164,24 +217,60 @@ function ChatContent() {
                 });
               });
             } else {
-              initialMsgs.push({
-                id: 'msg-approver-empty',
-                sender: 'bot',
-                text: `สวัสดีครับ ${user?.full_name || 'คุณครู'} (${getRoleTitle(user?.role)})!\n\nขณะนี้ไม่มีคำร้องใหม่ที่ค้างรอการพิจารณาในขั้นของท่านครับ ระบบจะส่งข้อความแจ้งเตือนทันทีเมื่อมีคำร้องยื่นเข้ามาครับ`,
-                time: nowTime,
-                poweredBy: 'Google Gemini AI',
-              });
+              // No request at my exact step, but show latest pending request so teacher can review/test
+              const latestPending = allReqs.find((r) => r.overall_status === 'pending') || allReqs[0];
+
+              if (latestPending) {
+                const isFinalApproved = latestPending.overall_status === 'approved';
+                const statusNotice = isFinalApproved
+                  ? `คำร้อง #${latestPending.request_code} ของ ${latestPending.student_name} ได้รับการอนุมัติครบทั้ง 5 ขั้นตอนแล้ว (พร้อมสแกนใบหน้าเปิดไม้กั้น)`
+                  : `ขณะนี้คำร้อง #${latestPending.request_code} ของ ${latestPending.student_name} อยู่ใน [ขั้นที่ ${latestPending.current_step}/5: ${getRoleTitleForStep(latestPending.current_step)}]`;
+
+                initialMsgs.push({
+                  id: 'msg-approver-info',
+                  sender: 'bot',
+                  text: `สวัสดีครับ ${user?.full_name || 'คุณครู'} (${getRoleTitle(user?.role)})!\n\n${statusNotice}\nท่านสามารถตรวจดูข้อมูลและกดอนุมัติได้ที่การ์ดคำร้องด้านล่างครับ:`,
+                  time: nowTime,
+                  poweredBy: 'Google Gemini AI',
+                });
+
+                initialMsgs.push({
+                  id: `req-card-${latestPending.id}`,
+                  sender: 'bot',
+                  time: latestPending.allowed_start_time || nowTime,
+                  requestCard: latestPending,
+                });
+              } else {
+                initialMsgs.push({
+                  id: 'msg-approver-empty',
+                  sender: 'bot',
+                  text: `สวัสดีครับ ${user?.full_name || 'คุณครู'} (${getRoleTitle(user?.role)})!\n\nขณะนี้ไม่มีคำร้องใหม่ที่ค้างรอการพิจารณาครับ ระบบจะส่งข้อความแจ้งเตือนทันทีเมื่อมีคำร้องยื่นเข้ามาครับ`,
+                  time: nowTime,
+                  poweredBy: 'Google Gemini AI',
+                });
+              }
             }
 
             setMessages(initialMsgs);
           }
         } else {
-          // Student view
+          // Student view (or not logged in -> default to demo student)
           const studentId = user?.id || 'user-stu-akkaracha';
           const res = await fetch(`/api/requests?student_id=${studentId}`);
           const data = await res.json();
 
-          if (data.success && data.requests && data.requests.length > 0) {
+          if (isPolling) {
+            if (data.success && data.requests && data.requests.length > 0) {
+              const fresh = data.requests[0];
+              setLatestRequest(fresh);
+              setMessages((prev) =>
+                prev.map((m) => (m.requestCard && m.requestCard.id === fresh.id ? { ...m, requestCard: fresh } : m))
+              );
+            }
+            return;
+          }
+
+          if (data.success && data.requests && data.requests.length > 0 && !isCancelled) {
             const req: LeaveRequest = data.requests[0];
             setLatestRequest(req);
 
@@ -226,7 +315,7 @@ function ChatContent() {
             }
 
             setMessages(initialMsgs);
-          } else {
+          } else if (!isCancelled) {
             setMessages([
               {
                 id: 'msg-welcome',
@@ -240,21 +329,31 @@ function ChatContent() {
         }
       } catch (err) {
         console.error(err);
-        const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        setMessages([
-          {
-            id: 'msg-welcome-fallback',
-            sender: 'bot',
-            text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์แจ้งเหตุผล สถานที่ วันที่ และเวลาได้เลยครับ (เช่น "ขอไปหาหมอรพ.องครักษ์ตอนเทียง")',
-            time: nowTime,
-            poweredBy: 'Google Gemini AI',
-          },
-        ]);
+        if (!isPolling && !isCancelled) {
+          const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          setMessages([
+            {
+              id: 'msg-welcome-fallback',
+              sender: 'bot',
+              text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์แจ้งเหตุผล สถานที่ วันที่ และเวลาได้เลยครับ (เช่น "ขอไปหาหมอรพ.องครักษ์ตอนเทียง")',
+              time: nowTime,
+              poweredBy: 'Google Gemini AI',
+            },
+          ]);
+        }
       }
     }
 
-    loadRequests();
-  }, [user, isApprover, userStep]);
+    loadRequests(false);
+    const interval = setInterval(() => {
+      loadRequests(true);
+    }, 2500);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, [user?.id, user?.role, isApprover, isGuard, userStep]);
 
   // Handle Teacher Direct Approval Action in Chat
   const handleTeacherAction = async (requestId: string, action: 'approve' | 'reject') => {
@@ -784,54 +883,111 @@ function ChatContent() {
                           </div>
                         )}
 
-                        {/* Approver Action Buttons vs Student Gate Button */}
-                        {isApprover ? (
+                        {/* Approver Action Buttons vs Guard View vs Student Gate Button */}
+                        {isGuard ? (
+                          <div className="pt-2 border-t border-white/20 space-y-2">
+                            <div className="bg-emerald-500/20 border border-emerald-400/30 rounded-xl p-2 text-center text-xs text-white font-bold flex items-center justify-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                              <span>
+                                {m.requestCard.overall_status === 'approved' || m.requestCard.synced_to_gate === 1
+                                  ? 'สิทธิ์ผ่านไม้กั้น: อนุมัติแล้ว พร้อมสแกนใบหน้า'
+                                  : `อยู่ระหว่างพิจารณา (ขั้นที่ ${m.requestCard.current_step}/5)`}
+                              </span>
+                            </div>
+                            <Link
+                              href="/gate"
+                              className="w-full py-2.5 bg-white hover:bg-emerald-50 text-emerald-800 text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all"
+                            >
+                              <ScanFace className="w-4 h-4 text-emerald-600" />
+                              <span>📷 ไปที่หน้าจอสแกนไม้กั้นประตู 1 (Smart Gate)</span>
+                            </Link>
+                          </div>
+                        ) : isApprover ? (
                           <div className="pt-2 border-t border-white/20 space-y-1.5">
-                            {m.requestCard.overall_status === 'pending' && (user?.role === 'admin' || m.requestCard.current_step === userStep) ? (
-                              <div className="space-y-1.5">
-                                <div className="text-[11px] text-blue-100 font-medium text-center">
-                                  รอดำเนินการในขั้นของท่าน ({getRoleTitle(user?.role)}):
+                            {m.requestCard.overall_status === 'pending' ? (
+                              user?.role === 'admin' || m.requestCard.current_step === userStep ? (
+                                <div className="space-y-1.5">
+                                  <div className="text-[11px] text-blue-100 font-medium text-center">
+                                    รอดำเนินการในขั้นของท่าน ({getRoleTitle(user?.role)}):
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                      onClick={() => handleTeacherAction(m.requestCard!.id, 'approve')}
+                                      disabled={isSubmitting}
+                                      className="py-2.5 px-3 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer"
+                                    >
+                                      <CheckCircle2 className="w-4 h-4" />
+                                      <span>{userStep === 5 ? '✓ อนุมัติขั้นสุดท้าย' : '✓ อนุมัติส่งต่อ'}</span>
+                                    </button>
+                                    <button
+                                      onClick={() => handleTeacherAction(m.requestCard!.id, 'reject')}
+                                      disabled={isSubmitting}
+                                      className="py-2.5 px-3 bg-rose-500/80 hover:bg-rose-600 active:scale-95 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                                    >
+                                      <X className="w-4 h-4" />
+                                      <span>✕ ไม่อนุมัติ</span>
+                                    </button>
+                                  </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-2">
+                              ) : (
+                                <div className="space-y-2">
+                                  <div className="bg-amber-500/20 border border-amber-400/40 rounded-xl p-2.5 text-center text-xs text-amber-100 font-medium">
+                                    <div className="font-bold flex items-center justify-center gap-1.5 text-white">
+                                      <Clock className="w-4 h-4 text-amber-300" />
+                                      <span>กำลังรอการพิจารณาในขั้นที่ {m.requestCard.current_step}/5:</span>
+                                    </div>
+                                    <p className="text-[11px] text-amber-200 mt-0.5 font-bold">
+                                      {getRoleTitleForStep(m.requestCard.current_step)}
+                                    </p>
+                                  </div>
                                   <button
                                     onClick={() => handleTeacherAction(m.requestCard!.id, 'approve')}
                                     disabled={isSubmitting}
-                                    className="py-2.5 px-3 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer"
+                                    className="w-full py-2 px-3 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 active:scale-95 text-white text-[11px] font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer"
+                                    title="อนุมัติข้ามขั้นตอนเพื่อการสาธิตอย่างรวดเร็ว"
                                   >
-                                    <CheckCircle2 className="w-4 h-4" />
-                                    <span>{userStep === 5 ? '✓ อนุมัติขั้นสุดท้าย' : '✓ อนุมัติส่งต่อ'}</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleTeacherAction(m.requestCard!.id, 'reject')}
-                                    disabled={isSubmitting}
-                                    className="py-2.5 px-3 bg-rose-500/80 hover:bg-rose-600 active:scale-95 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                                  >
-                                    <X className="w-4 h-4" />
-                                    <span>✕ ไม่อนุมัติ</span>
+                                    <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                                    <span>⚡ อนุมัติในขั้นนี้ทันที (โหมดสาธิต)</span>
                                   </button>
                                 </div>
+                              )
+                            ) : m.requestCard.overall_status === 'approved' ? (
+                              <div className="space-y-2">
+                                <div className="bg-emerald-500/25 border border-emerald-400/40 rounded-xl p-2.5 text-center text-xs text-white font-bold flex items-center justify-center gap-1.5">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                                  <span>อนุมัติครบ 5 ขั้นแล้ว (ส่งข้อมูลเข้าป้อมยามเรียบร้อย)</span>
+                                </div>
+                                <Link
+                                  href="/gate"
+                                  className="w-full py-2.5 bg-white hover:bg-emerald-50 text-emerald-800 text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all"
+                                >
+                                  <ScanFace className="w-4 h-4 text-emerald-700" />
+                                  <span>📷 ไปที่หน้าสแกนไม้กั้นประตู 1 (ทดสอบเปิดไม้กั้น)</span>
+                                </Link>
                               </div>
                             ) : (
-                              <div className="bg-emerald-500/20 border border-emerald-400/30 rounded-xl p-2 text-center text-xs text-white font-bold flex items-center justify-center gap-1.5">
-                                <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                                <span>
-                                  {m.requestCard.overall_status === 'approved'
-                                    ? 'อนุมัติครบ 5 ขั้นแล้ว (ส่งข้อมูลเข้าป้อมยามเรียบร้อย)'
-                                    : m.requestCard.overall_status === 'rejected'
-                                    ? 'คำร้องถูกปฏิเสธแล้ว'
-                                    : `ท่านได้อนุมัติในขั้นนี้แล้ว (กำลังรอขั้นที่ ${m.requestCard.current_step}/5)`}
-                                </span>
+                              <div className="bg-rose-500/20 border border-rose-400/30 rounded-xl p-2 text-center text-xs text-white font-bold flex items-center justify-center gap-1.5">
+                                <XCircle className="w-4 h-4 text-rose-300" />
+                                <span>คำร้องถูกปฏิเสธแล้ว</span>
                               </div>
                             )}
                           </div>
                         ) : (
-                          <Link
-                            href="/gate"
-                            className="w-full py-2.5 bg-white hover:bg-blue-50 text-[#0066CC] text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all"
-                          >
-                            <ScanFace className="w-4 h-4 text-[#0066CC]" />
-                            <span>สแกนใบหน้าเพื่อเปิดไม้กั้นอัตโนมัติ</span>
-                          </Link>
+                          <div className="pt-2 border-t border-white/20">
+                            {m.requestCard.overall_status === 'approved' ? (
+                              <Link
+                                href="/gate"
+                                className="w-full py-2.5 bg-white hover:bg-emerald-50 text-emerald-800 text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all"
+                              >
+                                <ScanFace className="w-4 h-4 text-emerald-600" />
+                                <span>สแกนใบหน้าเพื่อเปิดไม้กั้นอัตโนมัติ (อนุมัติแล้ว ✓)</span>
+                              </Link>
+                            ) : (
+                              <div className="bg-white/10 rounded-xl p-2.5 text-center text-xs text-blue-100">
+                                <span>กำลังรอการพิจารณา (ขั้นที่ {m.requestCard.current_step}/5: {getRoleTitleForStep(m.requestCard.current_step)})</span>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>

@@ -55,17 +55,8 @@ export default function ProfilePage() {
     }, 1800);
   };
 
-  const startReEnrollCamera = async () => {
+  const startReEnrollCamera = () => {
     setShowReEnrollModal(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
-      setCameraStream(stream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-    } catch (err) {
-      console.warn('Camera not available:', err);
-    }
   };
 
   const closeReEnrollCamera = () => {
