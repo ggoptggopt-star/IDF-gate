@@ -52,9 +52,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Default user is student นายอัครชา เปมะวิภาต (หัวหน้าผู้จัดทำ)
-      const defaultUser = allUsers.find((u: User) => u.username === '6731901001') || allUsers[0];
-      if (defaultUser) {
-        setUser(defaultUser);
+      const defaultUser = allUsers.find((u: User) => u.username === '6731901001') || allUsers[0] || {
+        id: 'user-stu-akkaracha',
+        username: '6731901001',
+        full_name: 'นายอัครชา เปมะวิภาต',
+        role: 'student',
+        group_code: 'ปวส.2/1',
+        level: 'ปวส.',
+        department_name: 'แผนกวิชาเทคโนโลยีธุรกิจดิจิทัล',
+        pdpa_consented: 1,
+      };
+      
+      setUser(defaultUser);
+      if (typeof window !== 'undefined') {
         localStorage.setItem('sgp_user_id', defaultUser.id);
       }
       setIsLoading(false);

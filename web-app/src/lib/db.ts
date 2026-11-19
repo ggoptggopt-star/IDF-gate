@@ -9,12 +9,22 @@ export function getDb(): DatabaseSync {
     return dbInstance;
   }
 
-  const dataDir = path.join(process.cwd(), 'data');
+  const isVercel = process.env.VERCEL === '1';
+  const dataDir = isVercel ? '/tmp/data' : path.join(process.cwd(), 'data');
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
   const dbPath = path.join(dataDir, 'smart_gate.db');
+  if (isVercel && !fs.existsSync(dbPath)) {
+    const seedDbPath = path.join(process.cwd(), 'data', 'smart_gate.db');
+    if (fs.existsSync(seedDbPath)) {
+      try {
+        fs.copyFileSync(seedDbPath, dbPath);
+      } catch {}
+    }
+  }
+
   dbInstance = new DatabaseSync(dbPath);
 
   // Enable WAL mode & foreign keys for performance and data integrity

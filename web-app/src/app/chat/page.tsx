@@ -240,6 +240,16 @@ function ChatContent() {
         }
       } catch (err) {
         console.error(err);
+        const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        setMessages([
+          {
+            id: 'msg-welcome-fallback',
+            sender: 'bot',
+            text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์แจ้งเหตุผล สถานที่ วันที่ และเวลาได้เลยครับ (เช่น "ขอไปหาหมอรพ.องครักษ์ตอนเทียง")',
+            time: nowTime,
+            poweredBy: 'Google Gemini AI',
+          },
+        ]);
       }
     }
 
