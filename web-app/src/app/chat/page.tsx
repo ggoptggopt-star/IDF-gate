@@ -717,7 +717,7 @@ function ChatContent() {
           leave_date: todayStr,
           allowed_start_time: '12:00',
           allowed_end_time: 'ไม่กลับ',
-          course_id: 'cs-001',
+          course_id: 'cs-hvc2-wed-am',
         }),
       });
 

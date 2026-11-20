@@ -78,16 +78,25 @@ export async function POST(req: NextRequest) {
     }
 
     // Lookup course teacher for Step 1
-    let step1TeacherId = null;
+    let validCourseId: string | null = null;
+    let step1TeacherId: string | null = null;
     if (course_id) {
-      const course = queryOne(`SELECT teacher_id FROM courses_schedule WHERE id = ?`, course_id);
+      const course = queryOne(`SELECT id, teacher_id FROM courses_schedule WHERE id = ?`, course_id);
       if (course) {
+        validCourseId = course.id;
         step1TeacherId = course.teacher_id;
       }
     }
     // Fallback if no course is specified or course not found
-    if (!step1TeacherId) {
-      step1TeacherId = 'user-t-atthamed';
+    if (!validCourseId) {
+      const defaultCourse = queryOne(`SELECT id, teacher_id FROM courses_schedule WHERE class_group_id = ? LIMIT 1`, student.class_group_id) 
+        || queryOne(`SELECT id, teacher_id FROM courses_schedule LIMIT 1`);
+      if (defaultCourse) {
+        validCourseId = defaultCourse.id;
+        step1TeacherId = defaultCourse.teacher_id;
+      } else {
+        step1TeacherId = 'user-t-atthamed';
+      }
     }
 
     const step2AdvisorId = student.advisor_teacher_id || 'user-t-atthamed';
@@ -116,7 +125,7 @@ export async function POST(req: NextRequest) {
         ?, ?, ?, ?, ?
       )
     `,
-      newId, requestCode, student_id, course_id || null, category || 'personal', reason,
+      newId, requestCode, student_id, validCourseId, category || 'personal', reason,
       destination_name || 'นอกสถานศึกษา', destination_lat || 14.1350, destination_lng || 100.9920, attachment_path || null,
       todayStr, startTimeStr, endTimeStr,
       step1TeacherId, step2AdvisorId, step3DeptHeadId, step4DisciplineId, step5DeputyId
