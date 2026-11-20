@@ -4,6 +4,7 @@ import { AuthProvider } from '@/context/AuthContext';
 import DemoRoleSwitcher from '@/components/DemoRoleSwitcher';
 import BottomNav from '@/components/BottomNav';
 import PdpaGpsModal from '@/components/PdpaGpsModal';
+import NotificationManager from '@/components/NotificationManager';
 
 export const metadata: Metadata = {
   title: 'Smart Gate Pass AI — วิทยาลัยการอาชีพองครักษ์ (OICEC)',
@@ -26,6 +27,9 @@ export default function RootLayout({
         <AuthProvider>
           {/* Top Demo Bar for Easy Presentation & Grading */}
           <DemoRoleSwitcher />
+
+          {/* Web Push Notification Handler & Sound Alert Manager */}
+          <NotificationManager />
 
           {/* 1-Step PDPA Consent & GPS Activation Modal */}
           <PdpaGpsModal />

@@ -22,6 +22,7 @@ import {
   X,
   Navigation,
 } from 'lucide-react';
+import { playNotificationSound } from '@/lib/notifications';
 
 export default function ApproverDashboard() {
   const { user } = useAuth();
@@ -101,6 +102,7 @@ export default function ApproverDashboard() {
       });
       const data = await res.json();
       if (data.success) {
+        playNotificationSound();
         setActionSuccessMsg(data.message);
         setTimeout(() => setActionSuccessMsg(''), 3000);
         await fetchRequests();

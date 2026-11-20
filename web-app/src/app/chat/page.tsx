@@ -28,6 +28,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { LeaveRequest } from '@/types';
 import ChatMapPicker from '@/components/ChatMapPicker';
+import { playNotificationSound, sendSystemNotification } from '@/lib/notifications';
 
 export interface ChatSlots {
   leave_date?: string | null;
@@ -373,6 +374,7 @@ function ChatContent() {
 
       const data = await res.json();
       if (data.success) {
+        playNotificationSound();
         const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
         // Update local card state in messages
@@ -580,6 +582,13 @@ function ChatContent() {
           setCurrentSlots({});
           setMissingSlots([]);
           setSelectedAttachmentUrl(null);
+          playNotificationSound();
+          sendSystemNotification({
+            title: `🔔 ยื่นคำร้องสำเร็จ: ${data.request.request_code}`,
+            body: `คำร้องของท่านถูกส่งต่อให้ ${data.request.step1_teacher_id || 'ครูผู้สอน'} เรียบร้อยแล้ว`,
+            url: '/chat',
+            tag: `student-sent-${data.request.id}`,
+          });
         }
 
         setMessages((prev) => [
