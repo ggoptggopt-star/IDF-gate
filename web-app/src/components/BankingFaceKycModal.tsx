@@ -388,9 +388,9 @@ export default function BankingFaceKycModal({
             const faceWidth = Math.abs(rightCheek.x - leftCheek.x);
             const midX = (leftCheek.x + rightCheek.x) / 2;
             const yawRatio = (noseTip.x - midX) / (faceWidth || 0.001);
-            // In video mirrored display:
-            // Turning to user's left moves nose in positive or negative depending on coords
-            const yawDegrees = Math.round(yawRatio * 75);
+            // Invert yawDegrees for mirrored selfie camera (-scale-x-100)
+            // Left turn (screen-left) = negative, Right turn (screen-right) = positive
+            const yawDegrees = -Math.round(yawRatio * 75);
             setDetectedYaw(yawDegrees);
 
             // 2. Blendshapes (Smile & Blink)
@@ -426,24 +426,24 @@ export default function BankingFaceKycModal({
                 statusHint = `กรุณามองตรงไปที่กล้อง (องศาปัจจุบัน: ${yawDegrees}°)`;
               }
             } else if (currentKey === 'turn_left') {
-              // Strict Turn Left: nose must shift toward the left side (yaw <= -11°)
-              if (yawDegrees <= -11) {
+              // Strict Turn Left (yaw <= -10°)
+              if (yawDegrees <= -10) {
                 conditionMet = true;
                 statusHint = `✓ ตรวจพบการหันซ้ายถูกต้อง (${Math.abs(yawDegrees)}°)`;
-              } else if (yawDegrees >= 11) {
+              } else if (yawDegrees >= 10) {
                 statusHint = `⚠️ ท่านกำลังหันขวา กรุณาหันศีรษะไปทางซ้ายตามลูกศร ⟵`;
               } else {
-                statusHint = `กรุณาค่อยๆ หันหน้าไปทางซ้ายตามลูกศร (ปัจจุบัน: ${Math.abs(yawDegrees)}° / 20°)`;
+                statusHint = `กรุณาค่อยๆ หันหน้าไปทางซ้ายตามลูกศร (ปัจจุบัน: ${Math.abs(yawDegrees)}° / 15°)`;
               }
             } else if (currentKey === 'turn_right') {
-              // Strict Turn Right: nose must shift toward the right side (yaw >= +11°)
-              if (yawDegrees >= 11) {
+              // Strict Turn Right (yaw >= +10°)
+              if (yawDegrees >= 10) {
                 conditionMet = true;
                 statusHint = `✓ ตรวจพบการหันขวาถูกต้อง (${Math.abs(yawDegrees)}°)`;
-              } else if (yawDegrees <= -11) {
+              } else if (yawDegrees <= -10) {
                 statusHint = `⚠️ ท่านกำลังหันซ้าย กรุณาหันศีรษะไปทางขวาตามลูกศร ⟶`;
               } else {
-                statusHint = `กรุณาค่อยๆ หันหน้าไปทางขวาตามลูกศร (ปัจจุบัน: ${Math.abs(yawDegrees)}° / 20°)`;
+                statusHint = `กรุณาค่อยๆ หันหน้าไปทางขวาตามลูกศร (ปัจจุบัน: ${Math.abs(yawDegrees)}° / 15°)`;
               }
             } else if (currentKey === 'blink') {
               if (detectedBlinkCount >= 2) {
@@ -648,14 +648,14 @@ export default function BankingFaceKycModal({
           {currentStep?.key === 'turn_left' && !stepSuccessState && (
             <div className="absolute left-3 inset-y-0 flex flex-col items-center justify-center z-30 pointer-events-none animate-in slide-in-from-left duration-300">
               <div className={`p-3 rounded-2xl border flex flex-col items-center gap-1 shadow-2xl transition-all duration-200 ${
-                detectedYaw <= -11
+                detectedYaw <= -10
                   ? 'bg-emerald-500/90 border-emerald-300 text-white scale-110 shadow-emerald-500/50'
                   : 'bg-cyan-950/85 border-cyan-400/80 text-cyan-300 animate-pulse'
               }`}>
                 <ArrowLeft className="w-10 h-10 animate-bounce" />
                 <span className="text-xs font-bold whitespace-nowrap">⟵ หันซ้าย 25°</span>
                 <span className="text-[10px] font-mono text-cyan-100">
-                  {detectedYaw <= -11 ? '✓ ตรวจพบหันซ้าย' : detectedYaw >= 11 ? '⚠️ หันผิดข้าง' : `ตรวจจับ: ${Math.abs(detectedYaw)}°`}
+                  {detectedYaw <= -10 ? '✓ ตรวจพบหันซ้าย' : detectedYaw >= 10 ? '⚠️ หันผิดข้าง' : `ตรวจจับ: ${Math.abs(detectedYaw)}°`}
                 </span>
               </div>
             </div>
@@ -665,14 +665,14 @@ export default function BankingFaceKycModal({
           {currentStep?.key === 'turn_right' && !stepSuccessState && (
             <div className="absolute right-3 inset-y-0 flex flex-col items-center justify-center z-30 pointer-events-none animate-in slide-in-from-right duration-300">
               <div className={`p-3 rounded-2xl border flex flex-col items-center gap-1 shadow-2xl transition-all duration-200 ${
-                detectedYaw >= 11
+                detectedYaw >= 10
                   ? 'bg-emerald-500/90 border-emerald-300 text-white scale-110 shadow-emerald-500/50'
                   : 'bg-cyan-950/85 border-cyan-400/80 text-cyan-300 animate-pulse'
               }`}>
                 <ArrowRight className="w-10 h-10 animate-bounce" />
                 <span className="text-xs font-bold whitespace-nowrap">หันขวา 25° ⟶</span>
                 <span className="text-[10px] font-mono text-cyan-100">
-                  {detectedYaw >= 11 ? '✓ ตรวจพบหันขวา' : detectedYaw <= -11 ? '⚠️ หันผิดข้าง' : `ตรวจจับ: ${Math.abs(detectedYaw)}°`}
+                  {detectedYaw >= 10 ? '✓ ตรวจพบหันขวา' : detectedYaw <= -10 ? '⚠️ หันผิดข้าง' : `ตรวจจับ: ${Math.abs(detectedYaw)}°`}
                 </span>
               </div>
             </div>
