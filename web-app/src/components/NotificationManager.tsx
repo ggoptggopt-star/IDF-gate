@@ -83,44 +83,66 @@ export default function NotificationManager() {
           return;
         }
 
-        // Subsequent polls: detect new requests or status changes
+        // Subsequent polls: detect new requests or status changes for the currently logged-in user
         allRequests.forEach((req) => {
-          const eventKey = `${req.id}_step${req.current_step}_${req.overall_status}`;
+          // Key event uniquely by user.id + request.id + current_step + overall_status
+          // This allows multi-role testing on one device (switching top bar) as well as multi-device sync
+          const eventKey = `${user.id}_${req.id}_step${req.current_step}_${req.overall_status}`;
           if (seenEventsRef.current.has(eventKey)) return;
 
-          // Found a new event! Mark as seen immediately
-          seenEventsRef.current.add(eventKey);
-          try {
-            sessionStorage.setItem(
-              'sgp_seen_notif_events',
-              JSON.stringify(Array.from(seenEventsRef.current))
-            );
-          } catch {
-            // ignore
-          }
-
-          // Case A: For Teachers & Approvers (When a student submits or advances to their step)
+          // Case A: For Teachers & Approvers (Triggered specifically when it is this role's turn to approve!)
           if (user.role !== 'student') {
-            const isWaitingForThisUser =
-              (user.role === 'subject_teacher' && req.current_step === 1 && req.step1_teacher_id === user.id) ||
-              (user.role === 'advisor' && req.current_step === 2 && req.step2_advisor_id === user.id) ||
-              (user.role === 'dept_head' && req.current_step === 3 && req.step3_dept_head_id === user.id) ||
-              (user.role === 'discipline' && req.current_step === 4) ||
-              (user.role === 'deputy_director' && req.current_step === 5) ||
-              (user.role === 'guard' && req.overall_status === 'approved') ||
-              user.role === 'admin';
+            const isMyTurn =
+              (user.role === 'subject_teacher' && req.current_step === 1 && req.overall_status === 'pending') ||
+              (user.role === 'advisor' && req.current_step === 2 && req.overall_status === 'pending') ||
+              (user.role === 'dept_head' && req.current_step === 3 && req.overall_status === 'pending') ||
+              (user.role === 'discipline' && req.current_step === 4 && req.overall_status === 'pending') ||
+              (user.role === 'deputy_director' && req.current_step === 5 && req.overall_status === 'pending') ||
+              (user.role === 'guard' && req.overall_status === 'approved' && req.synced_to_gate === 1) ||
+              (user.role === 'admin' && req.overall_status === 'pending');
 
-            // In demo mode or matching role, trigger notification
-            if (isWaitingForThisUser || req.overall_status === 'pending') {
-              const notifTitle = `🔔 มีคำร้องขอออกใหม่: ${req.student_name || 'นักศึกษา'}`;
-              const notifBody = `${req.reason} • ${req.destination_name} (รออนุมัติขั้นที่ ${req.current_step}/5)`;
+            if (isMyTurn) {
+              // Mark as seen so we don't alert repeatedly
+              seenEventsRef.current.add(eventKey);
+              try {
+                sessionStorage.setItem(
+                  'sgp_seen_notif_events',
+                  JSON.stringify(Array.from(seenEventsRef.current))
+                );
+              } catch {
+                // ignore
+              }
+
+              // Build informative title and message based on the approval step
+              let notifTitle = `🔔 มีคำร้องรออนุมัติ: ${req.student_name || 'นักศึกษา'}`;
+              let notifBody = `${req.reason} • ${req.destination_name} (รอการพิจารณาในขั้นที่ ${req.current_step}/5)`;
+
+              if (user.role === 'subject_teacher') {
+                notifTitle = `🔔 ขั้นที่ 1: นักเรียนขอออกในคาบเรียน (${req.student_name})`;
+                notifBody = `เหตุผล: ${req.reason} • ${req.destination_name} รอนายอนุมัติ`;
+              } else if (user.role === 'advisor') {
+                notifTitle = `🔔 ขั้นที่ 2 (ครูที่ปรึกษา): ส่งต่อคำร้องของ ${req.student_name}`;
+                notifBody = `ครูรายวิชาเห็นชอบแล้ว • รอท่าน (ครูที่ปรึกษา) พิจารณา`;
+              } else if (user.role === 'dept_head') {
+                notifTitle = `🔔 ขั้นที่ 3 (หัวหน้าแผนก): ส่งต่อคำร้องของ ${req.student_name}`;
+                notifBody = `ครูที่ปรึกษาเห็นชอบแล้ว • รอหัวหน้าแผนกอนุมัติ`;
+              } else if (user.role === 'discipline') {
+                notifTitle = `🔔 ขั้นที่ 4 (ฝ่ายปกครอง): ตรวจสอบคำร้องของ ${req.student_name}`;
+                notifBody = `ผ่านหัวหน้าแผนกแล้ว • รอฝ่ายปกครองตรวจความประพฤติ`;
+              } else if (user.role === 'deputy_director') {
+                notifTitle = `🔔 ขั้นที่ 5 (รอง ผอ.): ลงนามขั้นสุดท้าย ${req.student_name}`;
+                notifBody = `ผ่านฝ่ายปกครองแล้ว • รอลงนามเพื่อส่งสิทธิ์เปิดไม้กั้น`;
+              } else if (user.role === 'guard') {
+                notifTitle = `🚗 ป้อมยาม: อนุมัติผ่านครบ 5 ขั้นแล้ว!`;
+                notifBody = `${req.student_name} (${req.group_code || 'ปวส.2'}) กำลังมาสแกนหน้าเปิดไม้กั้น`;
+              }
 
               // Send system push notification (appears in Android notification drawer)
               sendSystemNotification({
                 title: notifTitle,
                 body: notifBody,
                 url: '/chat',
-                tag: `leave-${req.id}-${req.current_step}`,
+                tag: `leave-${req.id}-step-${req.current_step}`,
               });
 
               // Also show in-app banner
@@ -134,11 +156,21 @@ export default function NotificationManager() {
             }
           }
 
-          // Case B: For Student (When their request is approved or rejected)
+          // Case B: For Student (When their request status advances, is approved, or is rejected)
           if (user.role === 'student' && req.student_id === user.id) {
+            seenEventsRef.current.add(eventKey);
+            try {
+              sessionStorage.setItem(
+                'sgp_seen_notif_events',
+                JSON.stringify(Array.from(seenEventsRef.current))
+              );
+            } catch {
+              // ignore
+            }
+
             if (req.overall_status === 'approved') {
-              const notifTitle = '🎉 คำร้องขอออกได้รับอนุมัติแล้ว!';
-              const notifBody = `ไม้กั้นพร้อมให้สแกนใบหน้าเพื่อออกได้แล้ว (${req.destination_name})`;
+              const notifTitle = '🎉 คำร้องผ่านครบ 5 ขั้น ได้รับอนุมัติแล้ว!';
+              const notifBody = `ระบบส่งสิทธิ์เข้าป้อมยามแล้ว สแกนหน้าเปิดไม้กั้นได้เลย (${req.destination_name})`;
 
               sendSystemNotification({
                 title: notifTitle,
@@ -155,7 +187,7 @@ export default function NotificationManager() {
                 type: 'success',
               });
             } else if (req.overall_status === 'rejected') {
-              const notifTitle = '❌ คำร้องขอออกไม่ได้รับอนุมัติ';
+              const notifTitle = '❌ คำร้องขอออกไม่ได้รับการอนุมัติ';
               const notifBody = `กรุณาติดต่อครูที่ปรึกษา หรือตรวจสอบเหตุผลในแชท`;
 
               sendSystemNotification({
@@ -171,6 +203,24 @@ export default function NotificationManager() {
                 message: notifBody,
                 url: '/chat',
                 type: 'warning',
+              });
+            } else if (req.overall_status === 'pending' && req.current_step > 1) {
+              const notifTitle = `⚡ คำร้องกำลังส่งต่อ: ขั้นที่ ${req.current_step}/5`;
+              const notifBody = `คำร้องผ่านขั้นที่ ${req.current_step - 1} แล้ว กำลังรอผู้อนุมัติขั้นถัดไป`;
+
+              sendSystemNotification({
+                title: notifTitle,
+                body: notifBody,
+                url: '/chat',
+                tag: `student-progress-${req.id}-${req.current_step}`,
+              });
+
+              setActiveAlert({
+                id: req.id,
+                title: notifTitle,
+                message: notifBody,
+                url: '/chat',
+                type: 'info',
               });
             }
           }
