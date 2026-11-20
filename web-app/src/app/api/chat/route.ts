@@ -32,8 +32,13 @@ const SYSTEM_INSTRUCTION = `
    - ให้ใส่ "return_time" ลงใน missing_slots
    - ให้บอทพิมพ์ถามเวลากลับ เช่น: "รับทราบเวลาออก [เวลาออก] ครับ แล้วคาดว่าจะเดินทางกลับเข้าวิทยาลัยประมาณกี่โมงครับ?"
 2. หากนักศึกษาบอก "เวลากลับ" เพิ่มเข้ามา (เช่น 'กลับบ่ายสาม', '15:30 น.', 'บ่ายสองโมง') ให้บันทึก allowed_end_time
-3. หากนักศึกษาบอกทั้งช่วงเวลามาตั้งแต่แรก (เช่น "12:00 ถึง 15:30 น." หรือ "ตอนเที่ยงถึงบ่ายสาม") จึงจะบันทึกทั้ง allowed_start_time และ allowed_end_time พร้อมกันได้
-4. จะถือว่าข้อมูลเวลาครบถ้วน (is_complete) ก็ต่อเมื่อได้ "ทั้งเวลาออก และ เวลากลับ" จากนักศึกษาแล้วเท่านั้น
+3. หากนักศึกษาระบุว่า "ไม่กลับ", "ไม่กลับแล้ว", "ไม่กลับเข้ามา", "ออกแล้วไม่กลับ", "กลับบ้านเลย", "ออกยาว", "ไม่กลับโว้ย":
+   - ให้บันทึก is_return_required = 0
+   - ให้บันทึก allowed_end_time = "ไม่กลับ"
+   - ห้ามใส่ "return_time" ลงใน missing_slots เด็ดขาด! (ถือว่าได้ข้อมูลเวลากลับครบถ้วนแล้ว ห้ามถามซ้ำ!)
+   - บอทพิมพ์ตอบรับอย่างสุภาพ เช่น: "รับทราบครับว่าไม่เดินทางกลับเข้าวิทยาลัย"
+4. หากนักศึกษาบอกทั้งช่วงเวลามาตั้งแต่แรก (เช่น "12:00 ถึง 15:30 น." หรือ "ตอนเที่ยงถึงบ่ายสาม") จึงจะบันทึกทั้ง allowed_start_time และ allowed_end_time พร้อมกันได้
+5. จะถือว่าข้อมูลเวลาครบถ้วน (is_complete) ก็ต่อเมื่อได้ "ทั้งเวลาออก และ (เวลากลับ หรือ นักศึกษาระบุว่าไม่กลับ)" จากนักศึกษาแล้วเท่านั้น
 
 ความสามารถในการเข้าใจภาษาพูดภาษาไทยและการสะกดคำ (Colloquial & Typos):
 - "ตอนเทียง", "ตอนเที่ยง", "เที่ยง", "เทียง", "พักเที่ยง" -> เวลาออก 12:00 น. (ต้องถามเวลากลับด้วย!)
@@ -77,11 +82,21 @@ interface ParsedTimeResult {
   start?: string | null;
   end?: string | null;
   desc?: string;
+  noReturn?: boolean;
 }
 
 // Helper: Parse Thai Time (Never guess return time if only departure time is given!)
 function parseThaiTime(text: string, currentStart?: string | null): ParsedTimeResult | null {
   const t = text.replace(/\s+/g, ' ');
+
+  // 0. Explicit No-Return Detection
+  if (/(ไม่กลับ|ไม่ต้องกลับ|ไม่เข้าแล้ว|ไม่เข้ามาแล้ว|กลับบ้านเลย|ออกยาว|ไม่กลับโว้ย|ไม่กลับครับ|ไม่กลับค่ะ|ไม่กลับจ้า|ไม่ย้อนกลับ|ไม่เข้าวิทยาลัย)/i.test(t)) {
+    return {
+      end: 'ไม่กลับ',
+      desc: 'ไม่เดินทางกลับเข้าวิทยาลัย (ออกยาว)',
+      noReturn: true,
+    };
+  }
 
   // 1. Full Range: "12:30 - 15:30" or "12.30 - 15.30" or "12:30 ถึง 15:30"
   const rangeMatch = t.match(/(\d{1,2}[:.]\d{2})\s*(?:-|ถึง)\s*(\d{1,2}[:.]\d{2})/);
@@ -262,6 +277,8 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
 - ถ้านักศึกษาบอกแค่ "เวลาออก" (เช่น ตอนเทียง, บ่ายโมง) แต่ยังไม่ได้บอก "เวลากลับ":
   ห้ามเดาหรือคิดเวลากลับเองเด็ดขาด! ให้บันทึกเฉพาะ allowed_start_time และปล่อย allowed_end_time เป็น null
   แล้วใส่ "return_time" ใน missing_slots และพิมพ์ถามเวลากลับ เช่น: "รับทราบเวลาออก [เวลา] ครับ แล้วคาดว่าจะเดินทางกลับเข้าวิทยาลัยประมาณกี่โมงครับ?"
+- ถ้านักศึกษาตอบว่า "ไม่กลับ", "ไม่กลับแล้ว", "ไม่กลับเข้ามา", "ออกแล้วไม่กลับ", "กลับบ้านเลย", "ออกยาว", "ไม่กลับโว้ย":
+  ให้บันทึก is_return_required = 0 และ allowed_end_time = "ไม่กลับ" และตัด "return_time" ออกจาก missing_slots ทันที ห้ามถามซ้ำอีกเด็ดขาด!
 - ตรวจสอบว่า missing_slots มีอะไรบ้างตามลำดับ: date, destination, reason, start_time, return_time, attachment
 `;
 
@@ -280,6 +297,20 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
           const rawText = response.text || '';
           aiResult = JSON.parse(rawText);
           usedModel = modelName;
+
+          // Safety guard: if student explicitly states not returning, enforce it immediately
+          const isUserNoReturn = /(ไม่กลับ|ไม่ต้องกลับ|ไม่เข้าแล้ว|ไม่เข้ามาแล้ว|กลับบ้านเลย|ออกยาว|ไม่กลับโว้ย|ไม่กลับครับ|ไม่กลับค่ะ|ไม่กลับจ้า|ไม่ย้อนกลับ|ไม่เข้าวิทยาลัย)/i.test(text);
+          if (isUserNoReturn && aiResult) {
+            aiResult.slots = aiResult.slots || {};
+            aiResult.slots.is_return_required = 0;
+            aiResult.slots.allowed_end_time = 'ไม่กลับ';
+            if (aiResult.missing_slots) {
+              aiResult.missing_slots = aiResult.missing_slots.filter((s: string) => s !== 'return_time');
+            }
+            if (aiResult.replyMessage && (aiResult.replyMessage.includes('คาดว่าจะเดินทางกลับ') || aiResult.replyMessage.includes('กี่โมง'))) {
+              aiResult.replyMessage = `รับทราบครับว่าไม่เดินทางกลับเข้าวิทยาลัยในวันดังกล่าวครับ${aiResult.slots.attachment_path ? '' : '\n\nมีเอกสารหลักฐาน (เช่น ใบนัดแพทย์) แนบด้วยไหมครับ? (ถ้าไม่มีสามารถกดปุ่ม "ไม่มีเอกสารแนบ" ด้านล่างได้เลยครับ)'}`;
+            }
+          }
           break;
         } catch (geminiError: any) {
           console.warn(`Gemini error with model ${modelName}:`, geminiError.message);
@@ -330,6 +361,16 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
           if (parsedTime.end) {
             slots.allowed_end_time = parsedTime.end;
           }
+          if (parsedTime.noReturn) {
+            slots.is_return_required = 0;
+            slots.allowed_end_time = 'ไม่กลับ';
+          }
+        }
+
+        const isUserNoReturn = /(ไม่กลับ|ไม่ต้องกลับ|ไม่เข้าแล้ว|ไม่เข้ามาแล้ว|กลับบ้านเลย|ออกยาว|ไม่กลับโว้ย|ไม่กลับครับ|ไม่กลับค่ะ|ไม่กลับจ้า|ไม่ย้อนกลับ|ไม่เข้าวิทยาลัย)/i.test(text);
+        if (isUserNoReturn) {
+          slots.is_return_required = 0;
+          slots.allowed_end_time = 'ไม่กลับ';
         }
 
         // 3. Destination & Category & Reason
@@ -392,8 +433,8 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
         
         // Crucial Rule: If start_time exists but end_time is missing, ask for return_time (only if return is required!)
         if (slots.allowed_start_time && !slots.allowed_end_time) {
-          if (slots.is_return_required === 0) {
-            slots.allowed_end_time = '23:59';
+          if (slots.is_return_required === 0 || isUserNoReturn) {
+            slots.allowed_end_time = 'ไม่กลับ';
           } else {
             missing.push('return_time');
           }
@@ -432,7 +473,7 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
             slots.attachment_prompted = true;
             aiResult = {
               intent: 'leave_request',
-              replyMessage: `บันทึกข้อมูลเรียบร้อยครับ:\n📅 วันที่: ${slots.leave_date_text || slots.leave_date}\n📍 สถานที่: ${slots.destination_name}\n⏰ เวลาออก: ${slots.allowed_start_time} น. • เวลากลับ: ${slots.allowed_end_time} น.\n\nมีเอกสารหลักฐาน (เช่น ใบนัดแพทย์) หรือรูปถ่ายแชทผู้ปกครองแนบด้วยไหมครับ? (สามารถกด 📎 แนบรูป หรือกดปุ่มด้านล่างว่า 'ไม่มีเอกสารแนบ' เพื่อส่งคำขอได้เลยครับ)`,
+              replyMessage: `บันทึกข้อมูลเรียบร้อยครับ:\n📅 วันที่: ${slots.leave_date_text || slots.leave_date}\n📍 สถานที่: ${slots.destination_name}\n⏰ เวลาออก: ${slots.allowed_start_time} น. • เวลากลับ: ${slots.allowed_end_time === 'ไม่กลับ' ? 'ไม่กลับเข้าวิทยาลัย' : `${slots.allowed_end_time} น.`}\n\nมีเอกสารหลักฐาน (เช่น ใบนัดแพทย์) หรือรูปถ่ายแชทผู้ปกครองแนบด้วยไหมครับ? (สามารถกด 📎 แนบรูป หรือกดปุ่มด้านล่างว่า 'ไม่มีเอกสารแนบ' เพื่อส่งคำขอได้เลยครับ)`,
               slots,
               missing_slots: ['attachment'],
               ask_attachment_now: true,
@@ -536,7 +577,8 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
         WHERE lr.id = ?
       `, newId)) || null;
 
-      aiResult.replyMessage = `รับเรื่องขออนุญาตเรียบร้อยครับ!\n📅 วันที่: ${actualLeaveDate} (เวลา ${finalSlots.allowed_start_time} - ${finalSlots.allowed_end_time} น.)\n📚 ผูกวิชา: '${matchedCourse?.course_name || 'การวิเคราะห์ข้อมูล'}' (ครูประจำวิชา: ${matchedCourse?.teacher_name || 'ครูอรรถเมธ ตะโกนา'})\nเลขที่คำร้อง: ${requestCode} ส่งเข้าคิวพิจารณา 5 ขั้นตอนแล้วครับ${finalSlots.attachment_path ? ' (แนบไฟล์เอกสารหลักฐานเรียบร้อย)' : ''}`;
+      const displayEndTime = finalSlots.allowed_end_time === 'ไม่กลับ' ? 'ไม่กลับ' : `${finalSlots.allowed_end_time} น.`;
+      aiResult.replyMessage = `รับเรื่องขออนุญาตเรียบร้อยครับ!\n📅 วันที่: ${actualLeaveDate} (เวลา ${finalSlots.allowed_start_time} - ${displayEndTime})\n📚 ผูกวิชา: '${matchedCourse?.course_name || 'การวิเคราะห์ข้อมูล'}' (ครูประจำวิชา: ${matchedCourse?.teacher_name || 'ครูอรรถเมธ ตะโกนา'})\nเลขที่คำร้อง: ${requestCode} ส่งเข้าคิวพิจารณา 5 ขั้นตอนแล้วครับ${finalSlots.attachment_path ? ' (แนบไฟล์เอกสารหลักฐานเรียบร้อย)' : ''}`;
     }
 
     return NextResponse.json({
