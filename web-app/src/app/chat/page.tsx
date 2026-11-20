@@ -685,6 +685,86 @@ function ChatContent() {
     ]);
   };
 
+  // One-Click Instant Request Demo Trigger (No typing needed)
+  const handleQuickInstantRequest = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    // 1. Add student simulated prompt in chat
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `stu-instant-${Date.now()}`,
+        sender: 'student',
+        text: '⚡ [ยื่นคำร้องด่วน 1 คลิก]: ขออนุญาตไปพบแพทย์ตามนัดที่ โรงพยาบาลองครักษ์ วันนี้ เวลา 12:00 - ไม่กลับ น. ครับ',
+        time: nowTime,
+      },
+    ]);
+
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const res = await fetch('/api/requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_id: user?.id || 'user-stu-akkaracha',
+          category: 'medical',
+          reason: 'พบแพทย์ตามนัดที่โรงพยาบาลองครักษ์',
+          destination_name: 'โรงพยาบาลองครักษ์',
+          destination_lat: 14.135,
+          destination_lng: 100.992,
+          leave_date: todayStr,
+          allowed_start_time: '12:00',
+          allowed_end_time: 'ไม่กลับ',
+          course_id: 'cs-001',
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success && data.request) {
+        setLatestRequest(data.request);
+        setCurrentSlots({});
+        setMissingSlots([]);
+        setAskAttachmentNow(false);
+
+        // Sound chime and notify
+        playNotificationSound();
+        sendSystemNotification({
+          title: `🔔 ยื่นคำร้องด่วนสำเร็จ: ${data.request.request_code}`,
+          body: `คำร้องส่งต่อไปยังครูผู้สอน (ขั้นที่ 1) เรียบร้อยแล้ว`,
+          url: '/chat',
+          tag: `instant-${data.request.id}`,
+        });
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('sgp_request_updated'));
+          localStorage.setItem('sgp_last_action', Date.now().toString());
+        }
+
+        // 2. Append bot confirmation bubble with active request card
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `bot-instant-${Date.now()}`,
+            sender: 'bot',
+            text: `⚡ ดำเนินการยื่นคำร้องด่วน (โหมดสาธิต 1 คลิก) สำเร็จเรียบร้อยครับ!\n📅 วันที่: วันนี้ (เวลา 12:00 - ไม่กลับ น.)\n📍 สถานที่: โรงพยาบาลองครักษ์\nระบบได้ส่งคำร้องเข้าสู่สายพานการพิจารณา 5 ขั้นตอน และแจ้งเตือนครูประจำวิชาเรียบร้อยครับ`,
+            time: nowTime,
+            poweredBy: 'Google Gemini AI',
+            requestCard: data.request,
+          },
+        ]);
+      } else {
+        alert(data.error || 'เกิดข้อผิดพลาดในการสร้างคำร้องด่วน');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-[#F4F7FB] relative">
       {/* Lightbox Image Preview Modal */}
@@ -1111,6 +1191,16 @@ function ChatContent() {
       ) : (
         /* Student Quick Action Bar */
         <div className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-[#F4F7FB]">
+          {/* 1-Click Instant Request Demo Button */}
+          <button
+            onClick={handleQuickInstantRequest}
+            disabled={isSubmitting}
+            className="px-3 py-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-white font-bold rounded-full text-[11px] whitespace-nowrap shadow-sm flex items-center gap-1 active:scale-95 transition-all shrink-0 border border-amber-300/40"
+            title="กดปุ่มนี้เพื่อยื่นคำร้องตัวอย่างทันทีโดยไม่ต้องพิมพ์ข้อมูล (โหมดสาธิต 1 คลิก)"
+          >
+            <span>⚡ ยื่นคำร้องด่วน (1 คลิก)</span>
+          </button>
+
           <Link
             href="/gate"
             className="px-3 py-1.5 bg-white border border-slate-200/80 rounded-full text-[11px] font-medium text-slate-700 whitespace-nowrap shadow-2xs hover:bg-slate-50 flex items-center gap-1"

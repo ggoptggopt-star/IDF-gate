@@ -121,7 +121,19 @@ export async function POST(req: NextRequest) {
       step1TeacherId, step2AdvisorId, step3DeptHeadId, step4DisciplineId, step5DeputyId
     );
 
-    const created = queryOne(`SELECT * FROM leave_requests WHERE id = ?`, newId);
+    const created = queryOne(`
+      SELECT 
+        lr.*,
+        u.full_name as student_name,
+        u.username as student_code,
+        cg.group_code,
+        cs.course_name
+      FROM leave_requests lr
+      JOIN users u ON lr.student_id = u.id
+      LEFT JOIN class_groups cg ON u.class_group_id = cg.id
+      LEFT JOIN courses_schedule cs ON lr.course_id = cs.id
+      WHERE lr.id = ?
+    `, newId);
     return NextResponse.json({ success: true, request: created });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
