@@ -6,6 +6,7 @@ import {
   playNotificationSound,
   sendSystemNotification,
   requestNotificationPermission,
+  subscribeToPushNotifications,
 } from '@/lib/notifications';
 import { Bell, BellRing, X, ExternalLink, CheckCircle } from 'lucide-react';
 import { LeaveRequest } from '@/types';
@@ -28,6 +29,23 @@ export default function NotificationManager() {
   // Format stored: `${requestId}_step${currentStep}_${overallStatus}`
   const seenEventsRef = useRef<Set<string>>(new Set());
   const initialLoadDoneRef = useRef<boolean>(false);
+  const [isIosBrowser, setIsIosBrowser] = useState<boolean>(false);
+
+  // Sync push subscription with backend whenever user is logged in and permission is granted
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Detect iOS Safari running outside of PWA standalone mode
+    const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone;
+    if (isIos && !isStandalone) {
+      setIsIosBrowser(true);
+    }
+
+    if (user?.id && 'Notification' in window && Notification.permission === 'granted') {
+      subscribeToPushNotifications(user.id);
+    }
+  }, [user?.id]);
 
   // 1. Register Service Worker on mount
   useEffect(() => {
@@ -250,14 +268,17 @@ export default function NotificationManager() {
     };
   }, [user]);
 
-  // Handle granting permission
+  // Handle granting permission & subscribing to Background Push
   const handleEnableNotifications = async () => {
     const res = await requestNotificationPermission();
     setPermission(res);
     if (res === 'granted') {
+      if (user?.id) {
+        await subscribeToPushNotifications(user.id);
+      }
       sendSystemNotification({
-        title: '🔔 เปิดการแจ้งเตือนสำเร็จ!',
-        body: 'ระบบจะเด้งเตือนบนมือถือเมื่อมีคำร้องขอออกใหม่ทันที',
+        title: '🔔 เปิดรับการแจ้งเตือนสำเร็จ!',
+        body: 'ระบบจะเด้งเตือนบนมือถือเมื่อมีคำร้องใหม่ แม้ไม่ได้เปิดเว็บ',
         url: '/chat',
         tag: 'test-welcome',
       });
@@ -265,7 +286,7 @@ export default function NotificationManager() {
   };
 
   // Test Notification Trigger
-  const handleTestNotification = () => {
+  const handleTestNotification = async () => {
     playNotificationSound();
     sendSystemNotification({
       title: '🔔 ทดสอบการแจ้งเตือน: นายอัครชา เปมะวิภาต',
@@ -281,6 +302,17 @@ export default function NotificationManager() {
       url: '/chat',
       type: 'info',
     });
+
+    // Also send real background push via backend
+    if (user?.id) {
+      try {
+        await fetch('/api/push/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: user.id }),
+        });
+      } catch {}
+    }
   };
 
   return (
@@ -350,6 +382,14 @@ export default function NotificationManager() {
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
+        </div>
+      )}
+
+      {/* 2.1 iOS Safari PWA Guidance */}
+      {isIosBrowser && !bannerDismissed && (
+        <div className="bg-slate-900 text-amber-200 text-[11px] px-3 py-1.5 flex items-center justify-between border-b border-amber-500/30">
+          <span>🍎 <strong>ผู้ใช้ iPhone:</strong> แตะปุ่มแชร์ด้านล่าง แล้วเลือก <strong>&quot;เพิ่มไปยังหน้าจอโฮม&quot;</strong> เพื่อรับแจ้งเตือนตอนล็อกหน้าจอ</span>
+          <button onClick={() => setBannerDismissed(true)} className="text-slate-400 hover:text-white ml-2 p-1">✕</button>
         </div>
       )}
 

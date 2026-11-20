@@ -110,3 +110,61 @@ export async function sendSystemNotification({
     }
   }
 }
+
+// Helper: Convert VAPID public key to Uint8Array for PushManager
+export function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+// Subscribe to real Background Push (FCM / Safari / Chrome Push Service)
+export async function subscribeToPushNotifications(userId: string): Promise<boolean> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return false;
+  }
+
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    if (!reg.pushManager) return false;
+
+    // 1. Fetch public VAPID key
+    const res = await fetch('/api/push/public-key');
+    const data = await res.json();
+    if (!data.success || !data.publicKey) return false;
+
+    // 2. Check existing subscription or create new
+    let subscription = await reg.pushManager.getSubscription();
+    if (!subscription) {
+      const applicationServerKey = urlBase64ToUint8Array(data.publicKey);
+      subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: applicationServerKey as any,
+      });
+    }
+
+    if (!subscription) return false;
+
+    // 3. Register subscription on backend SQLite
+    const subJson = subscription.toJSON();
+    const saveRes = await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        subscription: subJson,
+      }),
+    });
+
+    const saveData = await saveRes.json();
+    return Boolean(saveData.success);
+  } catch (err) {
+    console.warn('Failed to subscribe to push notifications:', err);
+    return false;
+  }
+}

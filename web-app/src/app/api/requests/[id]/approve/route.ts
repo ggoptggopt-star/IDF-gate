@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { queryOne, execute } from '@/lib/db';
 import { LeaveRequest } from '@/types';
+import { sendPushToUsers } from '@/lib/webPushServer';
 
 export async function POST(
   req: NextRequest,
@@ -44,6 +45,15 @@ export async function POST(
       `, remark || 'ไม่อนุญาต', nowStr, approver_id || null, nowStr, id);
 
       const updated = queryOne(`SELECT * FROM leave_requests WHERE id = ?`, id);
+
+      // Background push to student (works when app is closed)
+      sendPushToUsers([request.student_id], {
+        title: '❌ คำร้องขอออกไม่ได้รับการอนุมัติ',
+        body: `เหตุผล: ${remark || 'ไม่อนุมัติตามระเบียบ'} (ติดต่อครูที่ปรึกษา)`,
+        url: '/chat',
+        tag: `rejected-${id}`,
+      }).catch(() => {});
+
       return NextResponse.json({ success: true, message: 'บันทึกการไม่อนุมัติเรียบร้อย', request: updated });
     }
 
@@ -69,6 +79,31 @@ export async function POST(
           updated_at = ?
         WHERE id = ?
       `, nextStep, remark || 'อนุมัติผ่านเกณฑ์', nowStr, approver_id || null, nowStr, id);
+
+      // Background Push to Next Approver (works even when browser is closed)
+      const nextApproverId =
+        nextStep === 2
+          ? request.step2_advisor_id || 'user-t-thanaphisit'
+          : nextStep === 3
+          ? request.step3_dept_head_id || 'user-head-pattana'
+          : nextStep === 4
+          ? request.step4_discipline_id || 'user-discipline-01'
+          : 'user-deputy-chaiyot';
+
+      sendPushToUsers([nextApproverId], {
+        title: `🔔 ส่งต่อถึงท่าน (ขั้นที่ ${nextStep}/5): ${request.destination_name}`,
+        body: `${request.reason} (ผ่านการอนุมัติขั้นที่ ${currentStep} แล้ว)`,
+        url: '/chat',
+        tag: `req-${id}-step-${nextStep}`,
+      }).catch(() => {});
+
+      // Background Push to Student
+      sendPushToUsers([request.student_id], {
+        title: `⚡ คำร้องผ่านการอนุมัติขั้นที่ ${currentStep}/5 แล้ว`,
+        body: `กำลังส่งต่อไปยังขั้นที่ ${nextStep} (${request.destination_name})`,
+        url: '/chat',
+        tag: `student-progress-${id}-${nextStep}`,
+      }).catch(() => {});
     } else {
       // Step 5 (Deputy Director) -> Final Sign-off & sync to gate!
       execute(`
@@ -84,6 +119,22 @@ export async function POST(
           updated_at = ?
         WHERE id = ?
       `, remark || 'อนุมัติขั้นสุดท้าย อนุญาตให้ออกนอกสถานศึกษาได้', nowStr, approver_id || null, nowStr, id);
+
+      // Push to Guard
+      sendPushToUsers(['user-guard-gate1'], {
+        title: '🚗 ป้อมยาม: มีนักเรียนได้รับอนุมัติผ่านครบ 5 ขั้นแล้ว!',
+        body: `คำร้อง #${request.request_code} ได้รับสิทธิ์สแกนหน้าเปิดไม้กั้น`,
+        url: '/gate',
+        tag: `gate-${id}`,
+      }).catch(() => {});
+
+      // Push to Student
+      sendPushToUsers([request.student_id], {
+        title: '🎉 คำร้องขอออกได้รับอนุมัติครบ 5 ขั้นแล้ว!',
+        body: `ระบบส่งสิทธิ์เข้าป้อมยามแล้ว สแกนหน้าเปิดไม้กั้นได้เลย (${request.destination_name})`,
+        url: '/gate',
+        tag: `approved-${id}`,
+      }).catch(() => {});
     }
 
     const updated = queryOne(`SELECT * FROM leave_requests WHERE id = ?`, id);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { queryOne, execute } from '@/lib/db';
 import { LeaveRequest } from '@/types';
 import { GoogleGenAI } from '@google/genai';
+import { sendPushToUsers } from '@/lib/webPushServer';
 
 export interface ChatSlots {
   leave_date?: string | null;
@@ -579,6 +580,15 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
 
       const displayEndTime = finalSlots.allowed_end_time === 'ไม่กลับ' ? 'ไม่กลับ' : `${finalSlots.allowed_end_time} น.`;
       aiResult.replyMessage = `รับเรื่องขออนุญาตเรียบร้อยครับ!\n📅 วันที่: ${actualLeaveDate} (เวลา ${finalSlots.allowed_start_time} - ${displayEndTime})\n📚 ผูกวิชา: '${matchedCourse?.course_name || 'การวิเคราะห์ข้อมูล'}' (ครูประจำวิชา: ${matchedCourse?.teacher_name || 'ครูอรรถเมธ ตะโกนา'})\nเลขที่คำร้อง: ${requestCode} ส่งเข้าคิวพิจารณา 5 ขั้นตอนแล้วครับ${finalSlots.attachment_path ? ' (แนบไฟล์เอกสารหลักฐานเรียบร้อย)' : ''}`;
+
+      // Background push notification to Teacher Step 1 (works when browser is closed)
+      const targetTeacherId = matchedCourse?.teacher_id || 'user-t-atthamed';
+      sendPushToUsers([targetTeacherId], {
+        title: `🔔 มีคำร้องขอออกใหม่: ${student?.full_name || 'นักศึกษา'}`,
+        body: `${finalSlots.reason || 'ธุระจำเป็น'} • ${finalSlots.destination_name} (รออนุมัติขั้นที่ 1)`,
+        url: '/chat',
+        tag: `req-${newId}-step-1`,
+      }).catch(() => {});
     }
 
     return NextResponse.json({

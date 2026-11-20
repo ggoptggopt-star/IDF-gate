@@ -161,3 +161,16 @@ CREATE INDEX IF NOT EXISTS idx_requests_status ON leave_requests(overall_status)
 CREATE INDEX IF NOT EXISTS idx_schedule_group ON courses_schedule(class_group_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_logs_student ON gate_exit_logs(student_id);
+
+-- 9. Web Push Notification Subscriptions (FCM / Safari / Chrome Background Push)
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    user_agent TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);

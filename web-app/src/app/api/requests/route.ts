@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne, execute } from '@/lib/db';
 import { LeaveRequest } from '@/types';
+import { sendPushToUsers } from '@/lib/webPushServer';
 
 export async function GET(req: NextRequest) {
   try {
@@ -134,6 +135,16 @@ export async function POST(req: NextRequest) {
       LEFT JOIN courses_schedule cs ON lr.course_id = cs.id
       WHERE lr.id = ?
     `, newId);
+
+    if (step1TeacherId) {
+      sendPushToUsers([step1TeacherId], {
+        title: `🔔 มีคำร้องขอออกใหม่: ${student.full_name}`,
+        body: `${reason} • ${destination_name || 'นอกสถานศึกษา'} (รออนุมัติขั้นที่ 1)`,
+        url: '/chat',
+        tag: `req-${newId}-step-1`,
+      }).catch(() => {});
+    }
+
     return NextResponse.json({ success: true, request: created });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

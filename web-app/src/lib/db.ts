@@ -87,6 +87,21 @@ export function getDb(): DatabaseSync {
   try {
     dbInstance.exec(`ALTER TABLE face_embeddings ADD COLUMN liveness_score REAL DEFAULT 0.985;`);
   } catch {}
+  try {
+    dbInstance.exec(`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        user_agent TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      );
+    `);
+    dbInstance.exec(`CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);`);
+  } catch {}
 
   return dbInstance;
 }
