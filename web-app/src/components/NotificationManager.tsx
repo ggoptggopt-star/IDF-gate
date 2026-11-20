@@ -76,7 +76,7 @@ export default function NotificationManager() {
         // On first load, record existing request states without popping up notifications
         if (!initialLoadDoneRef.current) {
           allRequests.forEach((r) => {
-            const eventKey = `${r.id}_step${r.current_step}_${r.overall_status}`;
+            const eventKey = `${user.id}_${r.id}_step${r.current_step}_${r.overall_status}`;
             seenEventsRef.current.add(eventKey);
           });
           initialLoadDoneRef.current = true;
@@ -233,11 +233,20 @@ export default function NotificationManager() {
     // Initial check
     checkRequests();
 
-    // Poll every 3 seconds
+    // Instant local and cross-tab event listeners
+    const handleInstantUpdate = () => {
+      checkRequests();
+    };
+    window.addEventListener('sgp_request_updated', handleInstantUpdate);
+    window.addEventListener('storage', handleInstantUpdate);
+
+    // Poll every 3 seconds for multi-device sync
     const interval = setInterval(checkRequests, 3000);
     return () => {
       isCancelled = true;
       clearInterval(interval);
+      window.removeEventListener('sgp_request_updated', handleInstantUpdate);
+      window.removeEventListener('storage', handleInstantUpdate);
     };
   }, [user]);
 

@@ -423,6 +423,11 @@ function ChatContent() {
 
         // Remove from pending
         setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('sgp_request_updated'));
+          localStorage.setItem('sgp_last_action', Date.now().toString());
+        }
       } else {
         alert(data.error || 'เกิดข้อผิดพลาดในการอนุมัติ');
       }
@@ -589,6 +594,10 @@ function ChatContent() {
             url: '/chat',
             tag: `student-sent-${data.request.id}`,
           });
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('sgp_request_updated'));
+            localStorage.setItem('sgp_last_action', Date.now().toString());
+          }
         }
 
         setMessages((prev) => [

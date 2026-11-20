@@ -105,6 +105,10 @@ export default function ApproverDashboard() {
         playNotificationSound();
         setActionSuccessMsg(data.message);
         setTimeout(() => setActionSuccessMsg(''), 3000);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('sgp_request_updated'));
+          localStorage.setItem('sgp_last_action', Date.now().toString());
+        }
         await fetchRequests();
       } else {
         alert(data.error);
