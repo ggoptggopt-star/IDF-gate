@@ -185,11 +185,11 @@ export default function GatePage() {
           similarityScore: Math.round(data.similarity_score * 1000) / 10,
         });
 
-        triggerGateOpen(data.student.full_name, data.request.request_code);
+        triggerGateOpen(data.student?.full_name || 'STUDENT', data.request?.request_code || '#PASS-AI');
         await fetchLogs();
 
         // If exit, navigate to Rider Live Trip Mode automatically
-        if (selectedDirection === 'exit' && data.request.id) {
+        if (selectedDirection === 'exit' && data.request?.id) {
           setTimeout(() => {
             router.push(`/trip/${data.request.id}`);
           }, 2400);

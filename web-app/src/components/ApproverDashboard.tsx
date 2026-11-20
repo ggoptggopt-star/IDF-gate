@@ -67,7 +67,7 @@ export default function ApproverDashboard() {
 
   // Filter requests
   const pendingRequests = requests.filter((r) => {
-    if (r.overall_status === 'rejected' || r.overall_status === 'completed_exit') return false;
+    if (['rejected', 'completed_exit', 'returned'].includes(r.overall_status)) return false;
     if (isAdmin) return r.overall_status === 'pending';
     if (userStep > 0) {
       return r.current_step === userStep && r.overall_status === 'pending';
@@ -75,7 +75,9 @@ export default function ApproverDashboard() {
     return r.overall_status === 'pending';
   });
 
-  const approvedRequests = requests.filter((r) => r.overall_status === 'approved' || r.overall_status === 'completed_exit');
+  const approvedRequests = requests.filter((r) =>
+    ['approved', 'completed_exit', 'returned'].includes(r.overall_status)
+  );
 
   const displayedRequests =
     activeTab === 'pending'
