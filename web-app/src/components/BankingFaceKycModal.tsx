@@ -92,6 +92,9 @@ export default function BankingFaceKycModal({
   const [isFaceDetected, setIsFaceDetected] = useState<boolean>(false);
   const [gestureVerifiedText, setGestureVerifiedText] = useState<string>('');
   const [isShutterFlashing, setIsShutterFlashing] = useState<boolean>(false);
+  const [isFaceAligned, setIsFaceAligned] = useState<boolean>(false);
+  const [alignmentWarning, setAlignmentWarning] = useState<string>('');
+  const [holdProgress, setHoldProgress] = useState<number>(0);
 
   // Real Snapshots
   const snapshotsRef = useRef<{
@@ -231,6 +234,9 @@ export default function BankingFaceKycModal({
     snapshotsRef.current = {};
     setCameraError('');
     conditionHoldTimerRef.current = 0;
+    setHoldProgress(0);
+    setIsFaceAligned(false);
+    setAlignmentWarning('');
 
     async function startCamera() {
       try {
@@ -332,11 +338,16 @@ export default function BankingFaceKycModal({
     playSoundEffect('shutter');
     setStepSuccessState(true);
     conditionHoldTimerRef.current = 0;
+    setHoldProgress(0);
+    setIsFaceAligned(false);
 
     setTimeout(() => {
       setStepSuccessState(false);
       setGestureVerifiedText('');
       setDetectedBlinkCount(0);
+      setHoldProgress(0);
+      setIsFaceAligned(false);
+      setAlignmentWarning('');
       if (nextIdx >= STEPS.length) {
         handleFinalSubmit();
       } else {
@@ -379,21 +390,57 @@ export default function BankingFaceKycModal({
             setIsFaceDetected(true);
             const landmarks = results.faceLandmarks[0];
 
-            // 1. Calculate Head Yaw (หันซ้าย / หันขวา)
-            // Left cheek (234), Right cheek (454), Nose tip (1)
+            // 1. Landmarks & Bounding Analysis
+            // Left cheek (234), Right cheek (454), Nose tip (1), Forehead (10), Chin (152)
             const leftCheek = landmarks[234];
             const rightCheek = landmarks[454];
             const noseTip = landmarks[1];
+            const forehead = landmarks[10];
+            const chin = landmarks[152];
 
             const faceWidth = Math.abs(rightCheek.x - leftCheek.x);
+            const faceHeight = Math.abs(chin.y - forehead.y);
             const midX = (leftCheek.x + rightCheek.x) / 2;
             const yawRatio = (noseTip.x - midX) / (faceWidth || 0.001);
             // Invert yawDegrees for mirrored selfie camera (-scale-x-100)
-            // Left turn (screen-left) = negative, Right turn (screen-right) = positive
             const yawDegrees = -Math.round(yawRatio * 75);
             setDetectedYaw(yawDegrees);
 
-            // 2. Blendshapes (Smile & Blink)
+            // 2. Face Alignment & Bounding Check inside Oval Guide:
+            // Since camera is mirrored (-scale-x-100):
+            // Center is around x=0.5, y=0.5
+            let aligned = true;
+            let alignMsg = '';
+
+            // Check Face Size (Distance)
+            if (faceHeight < 0.28) {
+              aligned = false;
+              alignMsg = '🔍 กรุณาขยับใบหน้าเข้ามาใกล้กล้องอีกนิด';
+            } else if (faceHeight > 0.70) {
+              aligned = false;
+              alignMsg = '↔️ กรุณาถอยห่างจากกล้องเล็กน้อย';
+            }
+            // Check Vertical Position (Y)
+            else if (noseTip.y > 0.62 || chin.y > 0.88) {
+              aligned = false;
+              alignMsg = '⬆️ กรุณายกกล้องขึ้น หรือเลื่อนใบหน้าขึ้นมาในกรอบ';
+            } else if (noseTip.y < 0.36 || forehead.y < 0.12) {
+              aligned = false;
+              alignMsg = '⬇️ กรุณากดกล้องลง หรือเลื่อนใบหน้าลงมาในกรอบ';
+            }
+            // Check Horizontal Position (X)
+            else if (noseTip.x < 0.38) {
+              aligned = false;
+              alignMsg = '➡️ กรุณาขยับใบหน้ามาไว้ตรงกลางกรอบ';
+            } else if (noseTip.x > 0.62) {
+              aligned = false;
+              alignMsg = '⬅️ กรุณาขยับใบหน้ามาไว้ตรงกลางกรอบ';
+            }
+
+            setIsFaceAligned(aligned);
+            setAlignmentWarning(alignMsg);
+
+            // 3. Blendshapes (Smile & Blink)
             let smileScore = 0;
             let isBlinking = false;
 
@@ -416,30 +463,38 @@ export default function BankingFaceKycModal({
             }
             lastBlinkStateRef.current = isBlinking;
 
-            // 3. Evaluate Step-Specific Condition
-            if (currentKey === 'straight') {
-              // Looking straight ahead: yaw within -8° to +8°
-              if (Math.abs(yawDegrees) <= 8) {
+            // 4. Evaluate Step-Specific Condition with Frame Lock
+            if (!aligned && currentKey === 'straight') {
+              conditionMet = false;
+              statusHint = alignMsg || 'กรุณาจัดใบหน้าให้อยู่ในกรอบวงรี';
+            } else if (currentKey === 'straight') {
+              // Looking straight ahead: yaw within -9° to +9°
+              if (Math.abs(yawDegrees) <= 9) {
                 conditionMet = true;
-                statusHint = '✓ ตรวจพบใบหน้ามองตรงตรงตำแหน่ง';
+                const remaining = Math.max(1, Math.ceil((22 - conditionHoldTimerRef.current) / 20));
+                statusHint = `✓ หน้าตรงกรอบพอดี ค้างไว้อีก ${remaining} วินาที...`;
               } else {
                 statusHint = `กรุณามองตรงไปที่กล้อง (องศาปัจจุบัน: ${yawDegrees}°)`;
               }
             } else if (currentKey === 'turn_left') {
-              // Strict Turn Left (yaw <= -10°)
-              if (yawDegrees <= -10) {
+              if (faceHeight < 0.25 || noseTip.y > 0.70 || noseTip.y < 0.30) {
+                conditionMet = false;
+                statusHint = 'กรุณาจัดใบหน้าให้อยู่ในกรอบก่อนหันศีรษะ';
+              } else if (yawDegrees <= -10) {
                 conditionMet = true;
-                statusHint = `✓ ตรวจพบการหันซ้ายถูกต้อง (${Math.abs(yawDegrees)}°)`;
+                statusHint = `✓ ตรวจพบการหันซ้ายถูกต้อง (${Math.abs(yawDegrees)}°) ค้างไว้...`;
               } else if (yawDegrees >= 10) {
                 statusHint = `⚠️ ท่านกำลังหันขวา กรุณาหันศีรษะไปทางซ้ายตามลูกศร ⟵`;
               } else {
                 statusHint = `กรุณาค่อยๆ หันหน้าไปทางซ้ายตามลูกศร (ปัจจุบัน: ${Math.abs(yawDegrees)}° / 15°)`;
               }
             } else if (currentKey === 'turn_right') {
-              // Strict Turn Right (yaw >= +10°)
-              if (yawDegrees >= 10) {
+              if (faceHeight < 0.25 || noseTip.y > 0.70 || noseTip.y < 0.30) {
+                conditionMet = false;
+                statusHint = 'กรุณาจัดใบหน้าให้อยู่ในกรอบก่อนหันศีรษะ';
+              } else if (yawDegrees >= 10) {
                 conditionMet = true;
-                statusHint = `✓ ตรวจพบการหันขวาถูกต้อง (${Math.abs(yawDegrees)}°)`;
+                statusHint = `✓ ตรวจพบการหันขวาถูกต้อง (${Math.abs(yawDegrees)}°) ค้างไว้...`;
               } else if (yawDegrees <= -10) {
                 statusHint = `⚠️ ท่านกำลังหันซ้าย กรุณาหันศีรษะไปทางขวาตามลูกศร ⟶`;
               } else {
@@ -448,20 +503,22 @@ export default function BankingFaceKycModal({
             } else if (currentKey === 'blink') {
               if (detectedBlinkCount >= 2) {
                 conditionMet = true;
-                statusHint = '✓ ตรวจพบการกะพริบตาครบ 2 ครั้งเรียบร้อย';
+                statusHint = '✓ ตรวจพบการกะพริบตาครบ 2 ครั้งเรียบร้อย ค้างไว้...';
               } else {
                 statusHint = `กะพริบตาช้าๆ 2 ครั้ง (ตรวจพบแล้ว: ${detectedBlinkCount}/2 ครั้ง)`;
               }
             } else if (currentKey === 'smile') {
               if (smileScore >= 0.35) {
                 conditionMet = true;
-                statusHint = `✓ ตรวจพบรอยยิ้ม (${Math.round(smileScore * 100)}%)`;
+                statusHint = `✓ ตรวจพบรอยยิ้ม (${Math.round(smileScore * 100)}%) ค้างไว้...`;
               } else {
                 statusHint = `ยิ้มให้เห็นฟันอย่างเป็นธรรมชาติ (ระดับรอยยิ้ม: ${Math.round(smileScore * 100)}% / 35%)`;
               }
             }
           } else {
             setIsFaceDetected(false);
+            setIsFaceAligned(false);
+            setAlignmentWarning('กำลังค้นหาใบหน้าให้อยู่ในกรอบวงรี...');
             statusHint = 'กำลังค้นหาใบหน้าให้อยู่ในกรอบวงรี...';
           }
         } catch (e) {
@@ -471,6 +528,7 @@ export default function BankingFaceKycModal({
         // --- Method B: Smart Canvas Optical Motion Detector (Fallback mode) ---
         // Measures horizontal delta shift (optical flow) between left/right halves
         setIsFaceDetected(true);
+        setIsFaceAligned(true);
         if (overlayCanvasRef.current) {
           const cvs = overlayCanvasRef.current;
           const ctx = cvs.getContext('2d', { willReadFrequently: true });
@@ -519,16 +577,29 @@ export default function BankingFaceKycModal({
 
       setGestureVerifiedText(statusHint);
 
-      // --- Hold & Lock-on Trigger ---
-      // When the user ACTUALLY maintains the requested pose for 0.45s:
+      // --- Hold & Lock-on Trigger with countdown ---
+      const REQUIRED_HOLD_FRAMES = 22; // ~750ms at 30fps
+
       if (conditionMet) {
         conditionHoldTimerRef.current += 1;
-        if (conditionHoldTimerRef.current >= 4) { // held for ~4 frames (~350ms)
+        const currentCount = conditionHoldTimerRef.current;
+        const progress = Math.min(100, Math.round((currentCount / REQUIRED_HOLD_FRAMES) * 100));
+        setHoldProgress(progress);
+
+        // Sound tick every 7 frames
+        if (currentCount % 7 === 1) {
+          playSoundEffect('tick');
+        }
+
+        if (currentCount >= REQUIRED_HOLD_FRAMES) {
           advanceStep();
           return;
         }
       } else {
-        conditionHoldTimerRef.current = 0;
+        if (conditionHoldTimerRef.current > 0) {
+          conditionHoldTimerRef.current = 0;
+          setHoldProgress(0);
+        }
       }
 
       animationFrameRef.current = requestAnimationFrame(runDetection);
@@ -620,19 +691,29 @@ export default function BankingFaceKycModal({
           {/* Oval Guide Overlay (Biometric Ring) */}
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
             <div
-              className={`w-56 h-72 rounded-[50%] transition-all duration-300 relative flex items-center justify-center ${
+              className={`w-56 h-72 rounded-[50%] transition-all duration-200 relative flex items-center justify-center ${
                 stepSuccessState
                   ? 'border-4 border-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.9)] bg-emerald-500/10'
-                  : conditionHoldTimerRef.current > 0
-                  ? 'border-3 border-emerald-400 shadow-[0_0_25px_rgba(52,211,153,0.7)]'
+                  : isFaceAligned && holdProgress > 0
+                  ? 'border-4 border-emerald-400 shadow-[0_0_35px_rgba(52,211,153,0.9)] bg-emerald-500/15 scale-102'
+                  : isFaceDetected && !isFaceAligned
+                  ? 'border-3 border-dashed border-amber-400 shadow-[0_0_25px_rgba(251,191,36,0.7)] bg-amber-500/5'
                   : 'border-2 border-dashed border-cyan-400/80 shadow-[0_0_20px_rgba(6,182,212,0.4)]'
               }`}
             >
               {/* Corner Biometric Crosshairs */}
-              <div className="absolute top-2 w-4 h-4 border-t-2 border-l-2 border-cyan-400"></div>
-              <div className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-cyan-400"></div>
-              <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-cyan-400"></div>
-              <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-cyan-400"></div>
+              <div className={`absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 transition-colors ${
+                isFaceAligned ? 'border-emerald-400' : isFaceDetected ? 'border-amber-400' : 'border-cyan-400'
+              }`}></div>
+              <div className={`absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 transition-colors ${
+                isFaceAligned ? 'border-emerald-400' : isFaceDetected ? 'border-amber-400' : 'border-cyan-400'
+              }`}></div>
+              <div className={`absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 transition-colors ${
+                isFaceAligned ? 'border-emerald-400' : isFaceDetected ? 'border-amber-400' : 'border-cyan-400'
+              }`}></div>
+              <div className={`absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 transition-colors ${
+                isFaceAligned ? 'border-emerald-400' : isFaceDetected ? 'border-amber-400' : 'border-cyan-400'
+              }`}></div>
 
               {/* SUCCESS TICK ANIMATION */}
               {stepSuccessState && (
@@ -641,8 +722,53 @@ export default function BankingFaceKycModal({
                   <span className="text-[9px] font-bold mt-0.5">ผ่านแล้ว ✓</span>
                 </div>
               )}
+
+              {/* LOCK-ON COUNTDOWN CIRCULAR HUD */}
+              {isFaceAligned && holdProgress > 0 && !stepSuccessState && (
+                <div className="relative w-20 h-20 flex items-center justify-center animate-in zoom-in-90 duration-150 z-30">
+                  <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 100 100">
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="42"
+                      className="stroke-slate-900/80"
+                      strokeWidth="8"
+                      fill="transparent"
+                    />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="42"
+                      className="stroke-emerald-400 transition-all duration-75"
+                      strokeWidth="8"
+                      strokeDasharray="264"
+                      strokeDashoffset={264 - (264 * holdProgress) / 100}
+                      strokeLinecap="round"
+                      fill="transparent"
+                    />
+                  </svg>
+                  <div className="absolute flex flex-col items-center">
+                    <span className="text-base font-black font-mono text-emerald-300 drop-shadow">
+                      {holdProgress}%
+                    </span>
+                    <span className="text-[9px] font-bold text-white tracking-wider">
+                      นิ่งไว้...
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* DYNAMIC MISALIGNMENT GUIDANCE WARNING BANNER */}
+          {!stepSuccessState && isFaceDetected && !isFaceAligned && alignmentWarning && (
+            <div className="absolute top-12 inset-x-6 flex justify-center z-30 pointer-events-none animate-bounce">
+              <div className="bg-amber-950/90 backdrop-blur-md border border-amber-400 text-amber-200 rounded-full px-4 py-1.5 flex items-center gap-2 shadow-2xl text-xs font-bold">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>{alignmentWarning}</span>
+              </div>
+            </div>
+          )}
 
           {/* ⟵ DYNAMIC DIRECTIONAL ARROW FOR TURN LEFT ⟵ */}
           {currentStep?.key === 'turn_left' && !stepSuccessState && (
@@ -723,9 +849,21 @@ export default function BankingFaceKycModal({
           {/* Bottom Live Feedback Banner */}
           {!isCompleted && !stepSuccessState && (
             <div className="absolute bottom-3 inset-x-4 flex flex-col items-center pointer-events-none z-30">
-              <div className="bg-slate-950/85 backdrop-blur-md border border-cyan-500/40 rounded-full px-3.5 py-1.5 flex items-center gap-2 shadow-xl max-w-full">
-                <span className={`w-2 h-2 rounded-full ${conditionHoldTimerRef.current > 0 ? 'bg-emerald-400 animate-ping' : 'bg-cyan-400 animate-pulse'}`}></span>
-                <span className="text-xs font-medium text-slate-200 truncate">
+              <div className={`backdrop-blur-md rounded-full px-4 py-1.5 flex items-center gap-2 shadow-xl max-w-full border transition-all ${
+                isFaceAligned && holdProgress > 0
+                  ? 'bg-emerald-950/90 border-emerald-400 text-emerald-200 shadow-emerald-500/20'
+                  : isFaceDetected && !isFaceAligned
+                  ? 'bg-amber-950/90 border-amber-400 text-amber-200 shadow-amber-500/20'
+                  : 'bg-slate-950/85 border-cyan-500/40 text-slate-200'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${
+                  isFaceAligned && holdProgress > 0
+                    ? 'bg-emerald-400 animate-ping'
+                    : isFaceDetected && !isFaceAligned
+                    ? 'bg-amber-400 animate-pulse'
+                    : 'bg-cyan-400 animate-pulse'
+                }`}></span>
+                <span className="text-xs font-semibold truncate">
                   {gestureVerifiedText || 'จัดตำแหน่งใบหน้าให้อยู่ในกรอบวงรี...'}
                 </span>
               </div>
