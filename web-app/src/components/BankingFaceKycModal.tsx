@@ -186,15 +186,25 @@ export default function BankingFaceKycModal({
 
         if (isCancelled) return;
 
-        const landmarker = await vision.FaceLandmarker.createFromOptions(filesetResolver, {
-          baseOptions: {
-            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-            delegate: 'GPU',
-          },
-          outputFaceBlendshapes: true,
-          runningMode: 'VIDEO',
-          numFaces: 1,
-        });
+        const makeLandmarker = (delegate: 'GPU' | 'CPU') =>
+          vision.FaceLandmarker.createFromOptions(filesetResolver, {
+            baseOptions: {
+              modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+              delegate,
+            },
+            outputFaceBlendshapes: true,
+            runningMode: 'VIDEO',
+            numFaces: 1,
+          });
+
+        let landmarker;
+        try {
+          landmarker = await makeLandmarker('GPU');
+        } catch (gpuErr) {
+          // Some mobile browsers fail on GPU delegate -> retry on CPU
+          console.warn('GPU delegate failed, retrying on CPU:', gpuErr);
+          landmarker = await makeLandmarker('CPU');
+        }
 
         if (!isCancelled) {
           landmarkerRef.current = landmarker;
@@ -428,11 +438,11 @@ export default function BankingFaceKycModal({
               aligned = false;
               alignMsg = '⬇️ กรุณากดกล้องลง หรือเลื่อนใบหน้าลงมาในกรอบ';
             }
-            // Check Horizontal Position (X)
-            else if (noseTip.x < 0.38) {
+            // Check Horizontal Position (X) — use face centre (cheeks midpoint) so head turns don't fail it
+            else if (midX < 0.35) {
               aligned = false;
               alignMsg = '➡️ กรุณาขยับใบหน้ามาไว้ตรงกลางกรอบ';
-            } else if (noseTip.x > 0.62) {
+            } else if (midX > 0.65) {
               aligned = false;
               alignMsg = '⬅️ กรุณาขยับใบหน้ามาไว้ตรงกลางกรอบ';
             }
@@ -464,7 +474,8 @@ export default function BankingFaceKycModal({
             lastBlinkStateRef.current = isBlinking;
 
             // 4. Evaluate Step-Specific Condition with Frame Lock
-            if (!aligned && currentKey === 'straight') {
+            // HARD GATE: every step requires the face to be inside the oval first
+            if (!aligned) {
               conditionMet = false;
               statusHint = alignMsg || 'กรุณาจัดใบหน้าให้อยู่ในกรอบวงรี';
             } else if (currentKey === 'straight') {
@@ -525,54 +536,16 @@ export default function BankingFaceKycModal({
           // Fallback if detection frame has glitch
         }
       } else {
-        // --- Method B: Smart Canvas Optical Motion Detector (Fallback mode) ---
-        // Measures horizontal delta shift (optical flow) between left/right halves
-        setIsFaceDetected(true);
-        setIsFaceAligned(true);
-        if (overlayCanvasRef.current) {
-          const cvs = overlayCanvasRef.current;
-          const ctx = cvs.getContext('2d', { willReadFrequently: true });
-          if (ctx) {
-            cvs.width = 64;
-            cvs.height = 48;
-            ctx.drawImage(video, 0, 0, 64, 48);
-            const frame = ctx.getImageData(0, 0, 64, 48).data;
-
-            if (lastPixelDataRef.current) {
-              const prev = lastPixelDataRef.current;
-              let leftDiff = 0;
-              let rightDiff = 0;
-              for (let y = 10; y < 38; y++) {
-                for (let x = 8; x < 32; x++) {
-                  const idx = (y * 64 + x) * 4;
-                  leftDiff += Math.abs(frame[idx] - prev[idx]);
-                }
-                for (let x = 32; x < 56; x++) {
-                  const idx = (y * 64 + x) * 4;
-                  rightDiff += Math.abs(frame[idx] - prev[idx]);
-                }
-              }
-
-              if (currentKey === 'turn_left' && (leftDiff > 18000 || rightDiff > 18000)) {
-                conditionMet = true;
-                statusHint = '✓ ตรวจพบการหันศีรษะไปทางซ้าย';
-              } else if (currentKey === 'turn_right' && (rightDiff > 18000 || leftDiff > 18000)) {
-                conditionMet = true;
-                statusHint = '✓ ตรวจพบการหันศีรษะไปทางขวา';
-              } else if (currentKey === 'straight') {
-                conditionMet = true;
-                statusHint = '✓ ใบหน้าตรงกึ่งกลาง ค้างไว้สักครู่...';
-              } else if (currentKey === 'blink') {
-                conditionMet = true;
-                statusHint = '✓ ตรวจจับ Liveness ผ่าน';
-              } else if (currentKey === 'smile') {
-                conditionMet = true;
-                statusHint = '✓ ตรวจพบรอยยิ้มธรรมชาติ';
-              }
-            }
-            lastPixelDataRef.current = new Uint8Array(frame);
-          }
-        }
+        // AI model not ready (still loading or failed to load).
+        // NEVER auto-capture here — previously this branch auto-passed every step,
+        // which caused photos to be taken even when the face was outside the oval.
+        setIsFaceDetected(false);
+        setIsFaceAligned(false);
+        setAlignmentWarning('');
+        conditionMet = false;
+        statusHint = aiEngineStatus === 'loading'
+          ? '⏳ กำลังโหลดโมเดล AI ตรวจจับใบหน้า กรุณารอสักครู่...'
+          : '⚠️ อุปกรณ์นี้โหลด AI ไม่สำเร็จ — จัดหน้าให้ตรงกรอบแล้วกดปุ่มถ่ายภาพด้านล่าง';
       }
 
       setGestureVerifiedText(statusHint);
@@ -947,17 +920,31 @@ export default function BankingFaceKycModal({
             </div>
           )}
 
-          {/* Action Button: Manual trigger if user wants immediate snap */}
-          {!isCompleted ? (
-            <button
-              onClick={() => advanceStep()}
-              disabled={submitting}
-              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-cyan-900/40 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
-            >
-              <Camera className="w-4 h-4 text-cyan-200" />
-              <span>📸 กดถ่ายภาพเองทันที (หรือทำท่าตามที่ AI กำหนด) ➔</span>
-            </button>
-          ) : (
+          {/* Action Button: Manual trigger — only allowed when the face is inside the oval
+              (or when AI failed to load on this device, so the user is not stuck) */}
+          {!isCompleted ? (() => {
+            const manualAllowed = aiEngineStatus === 'fallback' || (aiEngineStatus === 'ready' && isFaceDetected && isFaceAligned);
+            return (
+              <button
+                onClick={() => { if (manualAllowed) advanceStep(); }}
+                disabled={submitting || !manualAllowed}
+                className={`w-full py-2.5 rounded-xl text-white font-bold text-xs shadow-md flex items-center justify-center gap-2 transition-all ${
+                  manualAllowed
+                    ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 shadow-cyan-900/40 active:scale-[0.98] cursor-pointer'
+                    : 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-70'
+                }`}
+              >
+                <Camera className="w-4 h-4 text-cyan-200" />
+                <span>
+                  {aiEngineStatus === 'loading'
+                    ? '⏳ กำลังโหลด AI...'
+                    : manualAllowed
+                    ? '📸 กดถ่ายภาพเองทันที (หรือทำท่าตามที่ AI กำหนด) ➔'
+                    : '🔒 จัดใบหน้าให้อยู่ในกรอบก่อนจึงจะถ่ายได้'}
+                </span>
+              </button>
+            );
+          })() : (
             <button
               onClick={() => {
                 if (onSuccess) onSuccess();
