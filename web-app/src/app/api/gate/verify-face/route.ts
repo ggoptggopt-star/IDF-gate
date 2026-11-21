@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { queryOne, execute } from '@/lib/db';
 import { LeaveRequest } from '@/types';
+import { sendPushToUsers } from '@/lib/webPushServer';
 
 export async function POST(req: NextRequest) {
   try {
@@ -52,21 +53,47 @@ export async function POST(req: NextRequest) {
     const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
     const newLogId = `log-${Date.now()}`;
 
-    // Condition for authorization:
-    // 1. Overall status must be 'approved'
-    // 2. Synced to gate must be 1
-    const isAuthorized = request && request.overall_status === 'approved' && request.synced_to_gate === 1;
+    // Authorization evaluation based on direction:
+    let isAuthorized = false;
+    let reasonText = 'คำร้องยังไม่ได้รับการอนุมัติครบ 5 ขั้นตอน';
 
-    if (!isAuthorized) {
-      let reasonText = 'คำร้องยังไม่ได้รับการอนุมัติครบ 5 ขั้นตอน';
-      if (!request) {
+    if (direction === 'exit') {
+      // Exit scan requirements:
+      if (request && request.overall_status === 'approved' && request.synced_to_gate === 1) {
+        isAuthorized = true;
+      } else if (!request) {
         reasonText = 'ไม่พบประวัติการยื่นคำร้องขออนุญาตออกนอกสถานศึกษา';
+      } else if (request.overall_status === 'completed_exit') {
+        reasonText = 'นักศึกษาได้สแกนผ่านประตูขาออกไปแล้ว (สถานะ: ออกนอกสถานศึกษาแล้ว)';
+      } else if (request.overall_status === 'returned') {
+        reasonText = 'คำร้องนี้สิ้นสุดการเดินทางเรียบร้อยแล้ว (รายงานตัวกลับแล้ว)';
       } else if (request.overall_status === 'rejected') {
         reasonText = `คำร้องถูกปฏิเสธ: ${request.step1_remark || 'ไม่อนุญาต'}`;
       } else if (request.overall_status === 'pending') {
         reasonText = `คำร้องอยู่ระหว่างการพิจารณา (ขั้นที่ ${request.current_step}/5)`;
       }
+    } else {
+      // Return scan requirements:
+      if (request && (request.overall_status === 'completed_exit' || (request.overall_status === 'approved' && request.synced_to_gate === 1))) {
+        if (request.is_return_required === 0) {
+          reasonText = 'คำร้องนี้ระบุไม่ต้องเดินทางกลับเข้าสถานศึกษา (ออกยาว/กลับบ้าน)';
+        } else {
+          isAuthorized = true;
+        }
+      } else if (!request) {
+        reasonText = 'ไม่พบประวัติการยื่นคำร้องขออนุญาต';
+      } else if (request.overall_status === 'returned') {
+        reasonText = 'นักศึกษาได้รายงานตัวกลับเข้าสถานศึกษาเรียบร้อยแล้ว';
+      } else if (request.overall_status === 'rejected') {
+        reasonText = `คำร้องถูกปฏิเสธ: ${request.step1_remark || 'ไม่อนุญาต'}`;
+      } else if (request.overall_status === 'pending') {
+        reasonText = `คำร้องอยู่ระหว่างการพิจารณา (ขั้นที่ ${request.current_step}/5)`;
+      } else {
+        reasonText = 'ไม่พบประวัติการสแกนขาออก หรือคำร้องไม่ถูกต้อง';
+      }
+    }
 
+    if (!isAuthorized || !request) {
       return NextResponse.json({
         success: true,
         authorized: false,
@@ -85,11 +112,16 @@ export async function POST(req: NextRequest) {
     // Student IS authorized!
     // Update request status based on direction:
     const nextStatus = direction === 'exit' ? 'completed_exit' : 'returned';
+    const nextTripStage = direction === 'exit' ? 'heading_to_dest' : 'completed';
+
     execute(`
       UPDATE leave_requests
-      SET overall_status = ?, updated_at = ?
+      SET overall_status = ?,
+          trip_stage = ?,
+          return_arrived_at = CASE WHEN ? = 'return' THEN ? ELSE return_arrived_at END,
+          updated_at = ?
       WHERE id = ?
-    `, nextStatus, nowStr, request.id);
+    `, nextStatus, nextTripStage, direction, nowStr, nowStr, request.id);
 
     // Insert log
     execute(`
@@ -111,6 +143,27 @@ export async function POST(req: NextRequest) {
       nowStr
     );
 
+    // Push background notification to student and related approvers
+    const notifTitle = direction === 'exit'
+      ? `🚪 ไม้กั้นเปิด: นักศึกษาเดินทางออกนอกสถานศึกษาแล้ว`
+      : `🏁 ไม้กั้นเปิด: นักศึกษารายงานตัวกลับเข้าสถานศึกษาแล้ว`;
+    const notifBody = `${student.full_name} (${student.username}) สแกนใบหน้าสำเร็จ (${(similarity_score * 100).toFixed(1)}%) รหัส: ${request.request_code}`;
+
+    const involvedUsers = [
+      student.id,
+      request.step1_teacher_id,
+      request.step2_advisor_id,
+      request.step4_discipline_id,
+      'user-guard-01',
+    ].filter(Boolean) as string[];
+
+    sendPushToUsers(involvedUsers, {
+      title: notifTitle,
+      body: notifBody,
+      url: `/gate`,
+      tag: `gate-${direction}-${request.id}`,
+    }).catch((e) => console.error('Push error on gate verification:', e));
+
     return NextResponse.json({
       success: true,
       authorized: true,
@@ -125,6 +178,7 @@ export async function POST(req: NextRequest) {
       request: {
         ...request,
         overall_status: nextStatus,
+        trip_stage: nextTripStage,
       },
       direction,
       gate_opened_at: nowStr,

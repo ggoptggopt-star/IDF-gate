@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
       leave_date,
       allowed_start_time,
       allowed_end_time,
+      is_return_required,
     } = body;
 
     if (!student_id || !reason) {
@@ -113,22 +114,28 @@ export async function POST(req: NextRequest) {
     const todayStr = leave_date || new Date().toISOString().split('T')[0];
     const startTimeStr = allowed_start_time || '12:30';
     const endTimeStr = allowed_end_time || '15:30';
+    const isReturnRequired = is_return_required !== undefined 
+      ? (is_return_required ? 1 : 0) 
+      : (endTimeStr.includes('ไม่กลับ') ? 0 : 1);
 
     execute(`
       INSERT INTO leave_requests (
         id, request_code, student_id, course_id, category, reason, destination_name, destination_lat, destination_lng, attachment_path,
         leave_date, allowed_start_time, allowed_end_time, current_step, overall_status,
-        step1_teacher_id, step2_advisor_id, step3_dept_head_id, step4_discipline_id, step5_deputy_id
+        step1_teacher_id, step2_advisor_id, step3_dept_head_id, step4_discipline_id, step5_deputy_id,
+        is_return_required, trip_stage
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, 1, 'pending',
-        ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?,
+        ?, 'not_started'
       )
     `,
       newId, requestCode, student_id, validCourseId, category || 'personal', reason,
       destination_name || 'นอกสถานศึกษา', destination_lat || 14.1350, destination_lng || 100.9920, attachment_path || null,
       todayStr, startTimeStr, endTimeStr,
-      step1TeacherId, step2AdvisorId, step3DeptHeadId, step4DisciplineId, step5DeputyId
+      step1TeacherId, step2AdvisorId, step3DeptHeadId, step4DisciplineId, step5DeputyId,
+      isReturnRequired
     );
 
     const created = queryOne(`
