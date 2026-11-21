@@ -184,7 +184,7 @@ function parseThaiTime(text: string, currentStart?: string | null): ParsedTimeRe
     return { start: '12:00', end: null, desc: 'ออกเวลาตอนเที่ยง (12:00 น.)' };
   }
 
-  if (/(ตอนบ่าย|บ่ายนี้|ช่วงบ่าย|บ่ายโมง)/.test(t)) {
+  if (/(ตอนบ่าย|บ่ายนี้|ช่วงบ่าย|บ่ายโมง|^บ่าย$)/.test(t)) {
     return { start: '13:00', end: null, desc: 'ออกเวลาช่วงบ่าย (13:00 น.)' };
   }
 
@@ -192,7 +192,7 @@ function parseThaiTime(text: string, currentStart?: string | null): ParsedTimeRe
     return { start: '14:00', end: null, desc: 'ออกเวลาบ่ายสอง (14:00 น.)' };
   }
 
-  if (/(ตอนเช้า|เช้านี้|ช่วงเช้า)/.test(t)) {
+  if (/(ตอนเช้า|เช้านี้|ช่วงเช้า|^เช้า$|เวลาเช้า)/.test(t)) {
     return { start: '08:30', end: null, desc: 'ออกเวลาช่วงเช้า (08:30 น.)' };
   }
 
@@ -300,7 +300,7 @@ export async function POST(req: NextRequest) {
 
     // 1. Try Google Gemini API if key is available
     if (activeApiKey) {
-      const candidateModels = ['gemini-3.1-flash-lite'];
+      const candidateModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
       const ai = new GoogleGenAI({ apiKey: activeApiKey });
 
       const promptPayload = `
@@ -345,7 +345,7 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
       for (const modelName of candidateModels) {
         try {
           const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('AI_TIMEOUT_4S')), 4500)
+            setTimeout(() => reject(new Error('AI_TIMEOUT_6S')), 6000)
           );
 
           const apiPromise = ai.models.generateContent({
@@ -390,7 +390,7 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
 
     // 2. Built-in Deterministic Parser (Strict: Never guess return time!)
     if (!aiResult) {
-      const isScheduleQuery = /(ขอออกและกลับได้เวลาไหน|ขอออกได้เวลาไหน|ออกได้เวลาไหน|ออกได้ตอนไหน|ขอออกได้ตอนไหน|เวลาไหนบ้าง|เวลาอะไรบ้าง|มีเวลาอะไรบ้าง|มีเวลาไหน|ออกกี่โมงได้|ตาราง|ตารางเรียน|ตารางเวลา|คาบเรียน|8:00|08:00|แปดโมง|กี่โมงถึงกี่โมง|ออกได้ช่วงไหน|กลับได้ช่วงไหน)/i.test(text);
+      const isScheduleQuery = /(ออกตอนไหน|ออกได้ตอนไหน|ขอออกได้ตอนไหน|ออกได้เวลาไหน|ขอออกและกลับได้เวลาไหน|เวลาไหนบ้าง|เวลาอะไรบ้าง|มีเวลาอะไรบ้าง|มีเวลาไหน|ออกกี่โมงได้|ออกช่วงไหน|ตาราง|ตารางเรียน|ตารางเวลา|คาบเรียน|8:00|08:00|แปดโมง|กี่โมงถึงกี่โมง|ออกได้ช่วงไหน|กลับได้ช่วงไหน|มีช่วงเวลาไหน|ช่วงเวลาออก)/i.test(text);
       const isTimeQuery = /(กี่โมง|เวลาอะไร|เวลาเท่าไหร่|เวลากี่โมง|ตอนนี้กี่โมง|เวลานี้|กี่โมงละ|กี่โมงแล้ว|time)/i.test(text);
       const isDateQuery = /(วันอะไร|วันที่เท่าไหร่|วันนี้วันอะไร|วันที่ไร|วันนี้วันที่|date)/i.test(text);
       const isSystemQuestion = /(ขั้นตอน|ระเบียบ|กี่ขั้น|ใครอนุมัติ|ทำยังไง|มีขั้นตอน|สอบถาม|คืออะไร|เงื่อนไข|ระบบคือ|ระบบทำอะไร|ไม้กั้น|สแกนหน้า|gps|เช็คอิน)/i.test(text);
@@ -507,14 +507,16 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
           slots.destination_lng = 100.9985;
           slots.is_return_required = 0;
           if (!slots.reason) slots.reason = 'ผู้ปกครองเดินทางมารับกลับบ้านก่อนเวลา';
-        } else if (/(ขอ|จะไป|ออก|ข้างนอก|ธุระ|ไป|กลับ|นัด|อนุญาต|พาไป|รับกลับ|พบแพทย์)/i.test(text) && text.length > 3 && !slots.destination_name && !isNoAttachment && !parsedDate && !parsedTime) {
-          slots.destination_name = text;
+        } else if (/^(?:ไป|ขอไป|จะไป|ออกไป|ขออนุญาตไป)\s*(.+)/i.test(text) && !/(ตอนไหน|ได้บ้าง|เวลาไหน|กี่โมง|ตาราง|อะไร|ยังไง|อย่างไร|ไหม|มั้ย|\?)/i.test(text)) {
+          const m = text.match(/^(?:ไป|ขอไป|จะไป|ออกไป|ขออนุญาตไป)\s*(.+)/i);
+          const dest = m ? m[1].trim() : text;
+          slots.destination_name = dest;
           slots.destination_lat = 14.1285;
           slots.destination_lng = 100.9985;
           slots.is_return_required = 1;
-          if (!slots.reason) slots.reason = text;
+          if (!slots.reason) slots.reason = `ขออนุญาตไป${dest}`;
           if (!slots.category) slots.category = 'personal';
-        } else if (!/(ขอ|จะไป|ออก|ข้างนอก|ธุระ|ไป|กลับ|นัด|อนุญาต|พาไป|รับกลับ|พบแพทย์)/i.test(text) && !slots.destination_name) {
+        } else if (!slots.destination_name) {
           aiResult = {
             intent: 'question',
             replyMessage: 'สวัสดีครับ ผมคือน้องเกต AI ผู้ช่วยประจำวิทยาลัยการอาชีพองครักษ์ครับ สามารถสอบถามเวลา วันที่ ข้อมูลระบบ 5 ขั้นตอน หรือแจ้งขออนุญาตออกนอกวิทยาลัยได้เลยครับ',
