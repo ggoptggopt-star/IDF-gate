@@ -556,10 +556,14 @@ function ChatContent() {
     setIsSubmitting(true);
     setAskAttachmentNow(false);
 
+    const abortCtrl = new AbortController();
+    const timeoutId = setTimeout(() => abortCtrl.abort(), 9000);
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: abortCtrl.signal,
         body: JSON.stringify({
           message: bubbleText,
           currentSlots,
@@ -569,6 +573,8 @@ function ChatContent() {
           student_id: user?.id || 'user-stu-akkaracha',
         }),
       });
+
+      clearTimeout(timeoutId);
 
       const data = await res.json();
       if (data.success) {
@@ -615,9 +621,21 @@ function ChatContent() {
       } else {
         alert(data.error || 'เกิดข้อผิดพลาดในการสนทนากับ AI');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      if (err.name === 'AbortError') {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `bot-timeout-${Date.now()}`,
+            sender: 'bot',
+            text: 'ระบบ AI ใช้เวลาตอบสนองนานเกินกำหนด กรุณาลองส่งข้อความใหม่อีกครั้งครับ',
+            time: nowTime,
+          },
+        ]);
+      }
     } finally {
+      clearTimeout(timeoutId);
       setIsSubmitting(false);
     }
   };

@@ -282,12 +282,7 @@ export async function POST(req: NextRequest) {
 
     // 1. Try Google Gemini API if key is available
     if (activeApiKey) {
-      const candidateModels = [
-        'gemini-3.1-flash-lite',
-        'gemini-3.8-flash',
-        'gemini-3.5-flash-lite',
-        'gemini-2.5-flash',
-      ];
+      const candidateModels = ['gemini-3.1-flash-lite'];
       const ai = new GoogleGenAI({ apiKey: activeApiKey });
 
       const promptPayload = `
@@ -319,7 +314,11 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
 
       for (const modelName of candidateModels) {
         try {
-          const response = await ai.models.generateContent({
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('AI_TIMEOUT_4S')), 4500)
+          );
+
+          const apiPromise = ai.models.generateContent({
             model: modelName,
             contents: promptPayload,
             config: {
@@ -329,7 +328,13 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
             },
           });
 
-          const rawText = response.text || '';
+          const response: any = await Promise.race([apiPromise, timeoutPromise]);
+
+          let rawText = (response.text || '').trim();
+          if (rawText.startsWith('```')) {
+            rawText = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+          }
+
           aiResult = JSON.parse(rawText);
           usedModel = modelName;
 
@@ -462,13 +467,22 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
           slots.destination_lng = 100.9985;
           slots.is_return_required = 0;
           if (!slots.reason) slots.reason = 'ผู้ปกครองเดินทางมารับกลับบ้านก่อนเวลา';
-        } else if (text.length > 3 && !slots.destination_name && !isNoAttachment && !parsedDate && !parsedTime) {
+        } else if (/(ขอ|จะไป|ออก|ข้างนอก|ธุระ|ไป|กลับ|นัด|อนุญาต|พาไป|รับกลับ|พบแพทย์)/i.test(text) && text.length > 3 && !slots.destination_name && !isNoAttachment && !parsedDate && !parsedTime) {
           slots.destination_name = text;
           slots.destination_lat = 14.1285;
           slots.destination_lng = 100.9985;
           slots.is_return_required = 1;
           if (!slots.reason) slots.reason = text;
           if (!slots.category) slots.category = 'personal';
+        } else if (!/(ขอ|จะไป|ออก|ข้างนอก|ธุระ|ไป|กลับ|นัด|อนุญาต|พาไป|รับกลับ|พบแพทย์)/i.test(text) && !slots.destination_name) {
+          aiResult = {
+            intent: 'question',
+            replyMessage: 'สวัสดีครับ ผมคือน้องเกต AI ผู้ช่วยประจำวิทยาลัยการอาชีพองครักษ์ครับ สามารถสอบถามเวลา วันที่ ข้อมูลระบบ 5 ขั้นตอน หรือแจ้งขออนุญาตออกนอกวิทยาลัยได้เลยครับ',
+            slots,
+            missing_slots: [],
+            ask_attachment_now: false,
+            is_complete: false,
+          };
         }
 
         // 4. Attachment handling
