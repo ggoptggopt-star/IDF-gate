@@ -127,6 +127,7 @@ function ChatContent() {
   const [latestRequest, setLatestRequest] = useState<LeaveRequest | null>(null);
   const [pendingRequests, setPendingRequests] = useState<LeaveRequest[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState('');
   
   // Slot-Filling State (for student role)
@@ -584,7 +585,7 @@ function ChatContent() {
     formData.append('file', file);
 
     try {
-      setIsSubmitting(true);
+      setIsUploading(true);
       const res = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
@@ -592,14 +593,15 @@ function ChatContent() {
       const data = await res.json();
       if (data.success && data.fileUrl) {
         setSelectedAttachmentUrl(data.fileUrl);
-        handleSend(undefined, false, data.fileUrl);
+        await handleSend(undefined, false, data.fileUrl);
       } else {
         alert(data.error || 'อัปโหลดไฟล์ไม่สำเร็จ');
       }
     } catch (err) {
       console.error(err);
+      alert('เกิดข้อผิดพลาดในการอัปโหลดไฟล์');
     } finally {
-      setIsSubmitting(false);
+      setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -617,7 +619,7 @@ function ChatContent() {
     const attachUrl = overrideAttachmentUrl !== undefined ? overrideAttachmentUrl : selectedAttachmentUrl;
 
     if (!userText && !attachUrl && !skipAttachment) return;
-    if (isSubmitting) return;
+    if (isSubmitting && !overrideAttachmentUrl) return;
 
     setInput('');
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -681,7 +683,7 @@ function ChatContent() {
     setAskAttachmentNow(false);
 
     const abortCtrl = new AbortController();
-    const timeoutId = setTimeout(() => abortCtrl.abort(), 9000);
+    const timeoutId = setTimeout(() => abortCtrl.abort(), 28000);
 
     try {
       const res = await fetch('/api/chat', {
@@ -1325,14 +1327,20 @@ function ChatContent() {
         )}
 
         {/* AI Typing Indicator */}
-        {isSubmitting && (
+        {(isSubmitting || isUploading) && (
           <div className="flex items-start gap-2 max-w-[85%] animate-fadeIn">
             <div className="w-7 h-7 rounded-full bg-[#03152B] flex items-center justify-center shrink-0 mt-1 text-cyan-400">
               <Sparkles className="w-4 h-4 animate-spin" />
             </div>
             <div className="bg-white text-slate-600 text-xs rounded-2xl rounded-tl-xs px-4 py-3 shadow-2xs border border-slate-100 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-cyan-500 animate-ping"></span>
-              <span>น้องเกต AI กำลังประมวลผลคำสั่ง...</span>
+              <span>
+                {isUploading
+                  ? 'กำลังอัปโหลดไฟล์ภาพหลักฐาน...'
+                  : selectedAttachmentUrl
+                  ? 'น้องเกต AI กำลังอ่านและตรวจสอบเอกสารหลักฐาน... 🔍'
+                  : 'น้องเกต AI กำลังประมวลผลคำสั่ง...'}
+              </span>
             </div>
           </div>
         )}

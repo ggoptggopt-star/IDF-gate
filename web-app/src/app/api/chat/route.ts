@@ -470,8 +470,9 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
 
       for (const modelName of candidateModels) {
         try {
+          const timeoutMs = imagePart ? 16000 : 8000;
           const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('AI_TIMEOUT_6S')), 6000)
+            setTimeout(() => reject(new Error(`AI_TIMEOUT_${timeoutMs}MS`)), timeoutMs)
           );
 
           const contentParts: any[] = [{ text: promptPayload }];
