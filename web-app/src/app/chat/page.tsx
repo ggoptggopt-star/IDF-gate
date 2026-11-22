@@ -55,6 +55,7 @@ interface ChatMessage {
   poweredBy?: string;
   attachmentUrl?: string | null;
   requestCard?: LeaveRequest;
+  quickPills?: string[];
   checkinCard?: {
     destination: string;
     distance_m: number;
@@ -63,6 +64,14 @@ interface ChatMessage {
     maps_url: string;
   };
 }
+
+const STANDARD_QUICK_PILLS = [
+  'ขอออก',
+  'ขอไปพบแพทย์ตามนัด',
+  'ผู้ปกครองมารับกลับบ้านก่อนเวลา',
+  'เช็คสถานะคำร้องล่าสุดของฉัน',
+  'วิธีสแกนใบหน้าเปิดไม้กั้นประตู',
+];
 
 function getMessengerDivider(curr: ChatMessage, prev?: ChatMessage): { show: boolean; label: string } {
   const currTs = curr.timestamp || Date.now();
@@ -218,13 +227,23 @@ function ChatContent() {
       const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       setMessages([
         {
-          id: `welcome-${Date.now()}`,
+          id: `welcome-greet-${Date.now()}`,
           sender: 'bot',
-          text: `สวัสดีครับคุณ ${user?.full_name || 'นักศึกษา'}! ผมคือน้องเกต AI ผู้ช่วยประจำวิทยาลัยการอาชีพองครักษ์ครับ\n\nสามารถสอบถามเวลา วันที่ ข้อมูลวิทยาลัย ตารางเวลาที่ออกได้ หรือพิมพ์แจ้งขออนุญาตออกนอกวิทยาลัยได้เลยครับ`,
+          text: `สวัสดีครับ คุณ ${user?.full_name || 'นักศึกษา'} 👋`,
           time: nowTime,
           timestamp: Date.now(),
           dateStr: new Date().toISOString().split('T')[0],
-          poweredBy: 'Google Gemini AI (gemini-3.5-flash-lite)',
+          poweredBy: 'Google Gemini AI',
+        },
+        {
+          id: `welcome-options-${Date.now() + 1}`,
+          sender: 'bot',
+          text: 'ขอขอบคุณที่ติดต่อเข้ามา โปรดเลือกหัวขอด้านล่าง หรือพิมพ์แจ้งเรื่องที่คุณต้องการความช่วยเหลือได้เลยครับ 🙏',
+          time: nowTime,
+          timestamp: Date.now() + 1,
+          dateStr: new Date().toISOString().split('T')[0],
+          poweredBy: 'Google Gemini AI',
+          quickPills: STANDARD_QUICK_PILLS,
         },
       ]);
     }
@@ -442,11 +461,23 @@ function ChatContent() {
           } else if (!isCancelled) {
             setMessages([
               {
-                id: 'msg-welcome',
+                id: 'welcome-greet',
                 sender: 'bot',
-                text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์แจ้งเหตุผล สถานที่ วันที่ และเวลาได้เลยครับ (เช่น "ขอไปหาหมอรพ.องครักษ์ตอนเทียง")',
+                text: `สวัสดีครับ คุณ ${user?.full_name || 'นักศึกษา'} 👋`,
                 time: nowTime,
+                timestamp: Date.now(),
+                dateStr: new Date().toISOString().split('T')[0],
                 poweredBy: 'Google Gemini AI',
+              },
+              {
+                id: 'welcome-options',
+                sender: 'bot',
+                text: 'ขอขอบคุณที่ติดต่อเข้ามา โปรดเลือกหัวขอด้านล่าง หรือพิมพ์แจ้งเรื่องที่คุณต้องการความช่วยเหลือได้เลยครับ 🙏',
+                time: nowTime,
+                timestamp: Date.now() + 1,
+                dateStr: new Date().toISOString().split('T')[0],
+                poweredBy: 'Google Gemini AI',
+                quickPills: STANDARD_QUICK_PILLS,
               },
             ]);
           }
@@ -457,11 +488,23 @@ function ChatContent() {
           const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           setMessages([
             {
-              id: 'msg-welcome-fallback',
+              id: 'welcome-greet-fallback',
               sender: 'bot',
-              text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์แจ้งเหตุผล สถานที่ วันที่ และเวลาได้เลยครับ (เช่น "ขอไปหาหมอรพ.องครักษ์ตอนเทียง")',
+              text: `สวัสดีครับ คุณ ${user?.full_name || 'นักศึกษา'} 👋`,
               time: nowTime,
+              timestamp: Date.now(),
+              dateStr: new Date().toISOString().split('T')[0],
               poweredBy: 'Google Gemini AI',
+            },
+            {
+              id: 'welcome-options-fallback',
+              sender: 'bot',
+              text: 'ขอขอบคุณที่ติดต่อเข้ามา โปรดเลือกหัวขอด้านล่าง หรือพิมพ์แจ้งเรื่องที่คุณต้องการความช่วยเหลือได้เลยครับ 🙏',
+              time: nowTime,
+              timestamp: Date.now() + 1,
+              dateStr: new Date().toISOString().split('T')[0],
+              poweredBy: 'Google Gemini AI',
+              quickPills: STANDARD_QUICK_PILLS,
             },
           ]);
         }
@@ -1091,6 +1134,22 @@ function ChatContent() {
                     </div>
                   )}
 
+                  {/* Quick Action Pills (Grab Help Centre Style) */}
+                  {m.quickPills && m.quickPills.length > 0 && (
+                    <div className="flex flex-col items-end gap-2 mt-2 w-full select-none pl-2">
+                      {m.quickPills.map((pill, pIdx) => (
+                        <button
+                          key={pIdx}
+                          onClick={() => handleSend(undefined, false, undefined, pill)}
+                          disabled={isSubmitting}
+                          className="bg-[#EAF7F6] hover:bg-[#D5EFEA] active:scale-95 text-[#0A695E] dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 font-semibold text-xs px-4 py-2.5 rounded-2xl shadow-2xs border border-[#BCE8E0] transition-all cursor-pointer text-right flex items-center justify-end self-end max-w-[90%]"
+                        >
+                          <span>{pill}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   {/* 5-Tier Request Card (Interactive for both Student & Approver) */}
                   {m.requestCard && (
                     <div className="bg-[#0066CC] text-white rounded-3xl p-4 shadow-md w-full space-y-3">
@@ -1391,32 +1450,51 @@ function ChatContent() {
             <span>⚡ ยื่นคำร้องด่วน (1 คลิก)</span>
           </button>
 
-          <Link
-            href="/gate"
-            className="px-3 py-1.5 bg-white border border-slate-200/80 rounded-full text-[11px] font-medium text-slate-700 whitespace-nowrap shadow-2xs hover:bg-slate-50 flex items-center gap-1"
+          <button
+            onClick={() => handleSend(undefined, false, undefined, 'ขอออก')}
+            disabled={isSubmitting}
+            className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
           >
-            <span>🔒 สแกนใบหน้าเปิดไม้กั้น</span>
-          </Link>
+            <span>🚪 ขอออก</span>
+          </button>
+
+          <button
+            onClick={() => handleSend(undefined, false, undefined, 'ขอไปพบแพทย์ตามนัด')}
+            disabled={isSubmitting}
+            className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
+          >
+            <span>🏥 ขอไปพบแพทย์ตามนัด</span>
+          </button>
+
+          <button
+            onClick={() => handleSend(undefined, false, undefined, 'ผู้ปกครองมารับกลับบ้านก่อนเวลา')}
+            disabled={isSubmitting}
+            className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
+          >
+            <span>🚗 ผู้ปกครองมารับ</span>
+          </button>
+
+          <button
+            onClick={() => handleSend(undefined, false, undefined, 'เช็คสถานะคำร้องล่าสุดของฉัน')}
+            disabled={isSubmitting}
+            className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
+          >
+            <span>📊 เช็คสถานะคำร้อง</span>
+          </button>
+
+          <button
+            onClick={() => handleSend(undefined, false, undefined, 'วิธีสแกนใบหน้าเปิดไม้กั้นประตู')}
+            disabled={isSubmitting}
+            className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
+          >
+            <span>🔒 วิธีสแกนไม้กั้น</span>
+          </button>
 
           <button
             onClick={handleGpsCheckin}
-            className="px-3 py-1.5 bg-white border border-emerald-200 rounded-full text-[11px] font-medium text-emerald-800 whitespace-nowrap shadow-2xs hover:bg-emerald-50 flex items-center gap-1"
+            className="px-3 py-1.5 bg-white border border-emerald-200 rounded-full text-[11px] font-medium text-emerald-800 whitespace-nowrap shadow-2xs hover:bg-emerald-50 flex items-center gap-1 shrink-0"
           >
-            <span>📍 เช็คอินถึงจุดหมาย</span>
-          </button>
-
-          <button
-            onClick={() => setInput('ขอไปพบแพทย์ตามนัดที่ รพ.องครักษ์ ตอนเทียงวันนี้ครับ')}
-            className="px-3 py-1.5 bg-white border border-slate-200/80 rounded-full text-[11px] font-medium text-slate-700 whitespace-nowrap shadow-2xs hover:bg-slate-50 flex items-center gap-1"
-          >
-            <span>🏥 ขอไปพบแพทย์ (ตอนเที่ยง)</span>
-          </button>
-
-          <button
-            onClick={() => setInput('ขั้นตอนการขออนุญาตออกนอกวิทยาลัยต้องทำยังไงบ้างครับ?')}
-            className="px-3 py-1.5 bg-white border border-slate-200/80 rounded-full text-[11px] font-medium text-slate-700 whitespace-nowrap shadow-2xs hover:bg-slate-50 flex items-center gap-1"
-          >
-            <span>❓ ถามขั้นตอน 5 ขั้น</span>
+            <span>📍 เช็คอินจุดหมาย</span>
           </button>
 
           <button
