@@ -689,6 +689,10 @@ function ChatContent() {
           skip_attachment: skipAttachment,
           apiKey: geminiApiKey,
           student_id: user?.id || 'user-stu-akkaracha',
+          history: messages.slice(-4).map((m) => ({
+            role: m.sender === 'student' ? 'user' : 'model',
+            text: m.text || '',
+          })).filter((h) => h.text.trim().length > 0),
         }),
       });
 

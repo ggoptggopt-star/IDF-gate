@@ -109,19 +109,22 @@ export function getDb(): DatabaseSync {
 export function query<T = any>(sql: string, ...params: any[]): T[] {
   const db = getDb();
   const stmt = db.prepare(sql);
-  return stmt.all(...params) as T[];
+  const actualParams = Array.isArray(params[0]) && params.length === 1 ? params[0] : params;
+  return stmt.all(...actualParams) as T[];
 }
 
 export function queryOne<T = any>(sql: string, ...params: any[]): T | undefined {
   const db = getDb();
   const stmt = db.prepare(sql);
-  return (stmt.get(...params) as T) || undefined;
+  const actualParams = Array.isArray(params[0]) && params.length === 1 ? params[0] : params;
+  return (stmt.get(...actualParams) as T) || undefined;
 }
 
 export function execute(sql: string, ...params: any[]): { changes: number; lastInsertRowid: number | bigint } {
   const db = getDb();
   const stmt = db.prepare(sql);
-  const result = stmt.run(...params);
+  const actualParams = Array.isArray(params[0]) && params.length === 1 ? params[0] : params;
+  const result = stmt.run(...actualParams);
   return {
     changes: Number(result.changes),
     lastInsertRowid: result.lastInsertRowid,
