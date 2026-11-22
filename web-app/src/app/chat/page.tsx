@@ -64,44 +64,50 @@ interface ChatMessage {
   };
 }
 
-function formatDividerDate(ts: number, dateStr?: string): string {
-  const d = new Date(ts);
+function getMessengerDivider(curr: ChatMessage, prev?: ChatMessage): { show: boolean; label: string } {
+  const currTs = curr.timestamp || Date.now();
+  const currD = new Date(currTs);
   const now = new Date();
-
-  const isToday = d.toDateString() === now.toDateString();
-  const yesterday = new Date(now.getTime() - 86400000);
-  const isYesterday = d.toDateString() === yesterday.toDateString();
-
-  const timeStr = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' น.';
-
-  if (isToday) {
-    return `วันนี้ เวลา ${timeStr}`;
-  }
-  if (isYesterday) {
-    return `เมื่อวานนี้ เวลา ${timeStr}`;
-  }
 
   const thaiMonths = [
     'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
     'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
   ];
-  const day = d.getDate();
-  const month = thaiMonths[d.getMonth()];
-  const thaiYear = d.getFullYear() + 543;
 
-  return `${day} ${month} ${thaiYear} เวลา ${timeStr}`;
-}
+  const formatFullDateTime = (d: Date) => {
+    const isToday = d.toDateString() === now.toDateString();
+    const yesterday = new Date(now.getTime() - 86400000);
+    const isYesterday = d.toDateString() === yesterday.toDateString();
+    const timeStr = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' น.';
 
-function shouldShowDivider(curr: ChatMessage, prev?: ChatMessage): boolean {
-  if (!prev) return true;
+    if (isToday) return `วันนี้ เวลา ${timeStr}`;
+    if (isYesterday) return `เมื่อวานนี้ เวลา ${timeStr}`;
+    return `${d.getDate()} ${thaiMonths[d.getMonth()]} ${d.getFullYear() + 543} เวลา ${timeStr}`;
+  };
 
-  const currTs = curr.timestamp || Date.now();
+  const formatTimeOnly = (d: Date) => {
+    return d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' น.';
+  };
+
+  // 1. Very first message of conversation
+  if (!prev) {
+    return { show: true, label: formatFullDateTime(currD) };
+  }
+
   const prevTs = prev.timestamp || currTs;
+  const prevD = new Date(prevTs);
 
-  if (Math.abs(currTs - prevTs) > 15 * 60 * 1000) return true;
-  if (curr.dateStr && prev.dateStr && curr.dateStr !== prev.dateStr) return true;
+  // 2. Day changed
+  if (currD.toDateString() !== prevD.toDateString() || (curr.dateStr && prev.dateStr && curr.dateStr !== prev.dateStr)) {
+    return { show: true, label: formatFullDateTime(currD) };
+  }
 
-  return false;
+  // 3. Same day, but time gap > 15 minutes -> Messenger shows ONLY TIME
+  if (Math.abs(currTs - prevTs) > 15 * 60 * 1000) {
+    return { show: true, label: formatTimeOnly(currD) };
+  }
+
+  return { show: false, label: '' };
 }
 
 function ChatContent() {
@@ -1016,15 +1022,14 @@ function ChatContent() {
       <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
         {messages.map((m, index) => {
           const prev = index > 0 ? messages[index - 1] : undefined;
-          const showDivider = shouldShowDivider(m, prev);
-          const dividerLabel = showDivider ? formatDividerDate(m.timestamp || Date.now(), m.dateStr) : null;
+          const divider = getMessengerDivider(m, prev);
           if (m.sender === 'student') {
             return (
               <React.Fragment key={m.id}>
-                {showDivider && (
-                  <div className="flex justify-center my-3 select-none">
-                    <span className="text-[10.5px] font-semibold text-slate-500 bg-slate-200/80 px-3 py-1 rounded-full shadow-2xs tracking-wide border border-slate-300/40">
-                      {dividerLabel}
+                {divider.show && (
+                  <div className="flex justify-center my-3.5 select-none">
+                    <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 tracking-wider uppercase">
+                      {divider.label}
                     </span>
                   </div>
                 )}
@@ -1058,10 +1063,10 @@ function ChatContent() {
 
         return (
           <React.Fragment key={m.id}>
-            {showDivider && (
-              <div className="flex justify-center my-3 select-none">
-                <span className="text-[10.5px] font-semibold text-slate-500 bg-slate-200/80 px-3 py-1 rounded-full shadow-2xs tracking-wide border border-slate-300/40">
-                  {dividerLabel}
+            {divider.show && (
+              <div className="flex justify-center my-3.5 select-none">
+                <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 tracking-wider uppercase">
+                  {divider.label}
                 </span>
               </div>
             )}
