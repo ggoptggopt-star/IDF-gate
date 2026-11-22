@@ -238,7 +238,7 @@ function ChatContent() {
         {
           id: `welcome-options-${Date.now() + 1}`,
           sender: 'bot',
-          text: 'ขอขอบคุณที่ติดต่อเข้ามา โปรดเลือกหัวขอด้านล่าง หรือพิมพ์แจ้งเรื่องที่คุณต้องการความช่วยเหลือได้เลยครับ 🙏',
+          text: 'ผมคือ "น้องเกต AI" ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัยครับ ต้องการยื่นคำร้องหรือสอบถามเรื่องใด แตะเลือกหัวข้อด้านล่าง หรือพิมพ์บอกผมได้เลยครับ 🏫',
           time: nowTime,
           timestamp: Date.now() + 1,
           dateStr: new Date().toISOString().split('T')[0],
@@ -419,11 +419,19 @@ function ChatContent() {
 
             const initialMsgs: ChatMessage[] = [
               {
-                id: 'msg-welcome',
+                id: 'welcome-greet',
                 sender: 'bot',
-                text: 'สวัสดีครับ! ผมคือ น้องเกต AI ผู้ช่วยอัจฉริยะประจำวิทยาลัยการอาชีพองครักษ์ ยินดีช่วยเหลือครับ หากต้องการยื่นขออนุญาตออกนอกวิทยาลัย สามารถพิมพ์บอกสถานที่ วันที่ และเวลาได้เลยครับ (เช่น "ขอไปหาหมอที่ รพ.องครักษ์ ตอนเที่ยงวันนี้ครับ")',
+                text: `สวัสดีครับ คุณ ${user?.full_name || 'นักศึกษา'} 👋`,
                 time: req.allowed_start_time || '12:20',
                 poweredBy: 'Google Gemini AI',
+              },
+              {
+                id: 'welcome-options',
+                sender: 'bot',
+                text: 'ผมคือ "น้องเกต AI" ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัยครับ ต้องการยื่นคำร้องหรือสอบถามเรื่องใด แตะเลือกหัวข้อด้านล่าง หรือพิมพ์บอกผมได้เลยครับ 🏫',
+                time: req.allowed_start_time || '12:20',
+                poweredBy: 'Google Gemini AI',
+                quickPills: STANDARD_QUICK_PILLS,
               },
               {
                 id: 'msg-1',
@@ -472,7 +480,7 @@ function ChatContent() {
               {
                 id: 'welcome-options',
                 sender: 'bot',
-                text: 'ขอขอบคุณที่ติดต่อเข้ามา โปรดเลือกหัวขอด้านล่าง หรือพิมพ์แจ้งเรื่องที่คุณต้องการความช่วยเหลือได้เลยครับ 🙏',
+                text: 'ผมคือ "น้องเกต AI" ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัยครับ ต้องการยื่นคำร้องหรือสอบถามเรื่องใด แตะเลือกหัวข้อด้านล่าง หรือพิมพ์บอกผมได้เลยครับ 🏫',
                 time: nowTime,
                 timestamp: Date.now() + 1,
                 dateStr: new Date().toISOString().split('T')[0],
@@ -499,7 +507,7 @@ function ChatContent() {
             {
               id: 'welcome-options-fallback',
               sender: 'bot',
-              text: 'ขอขอบคุณที่ติดต่อเข้ามา โปรดเลือกหัวขอด้านล่าง หรือพิมพ์แจ้งเรื่องที่คุณต้องการความช่วยเหลือได้เลยครับ 🙏',
+              text: 'ผมคือ "น้องเกต AI" ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัยครับ ต้องการยื่นคำร้องหรือสอบถามเรื่องใด แตะเลือกหัวข้อด้านล่าง หรือพิมพ์บอกผมได้เลยครับ 🏫',
               time: nowTime,
               timestamp: Date.now() + 1,
               dateStr: new Date().toISOString().split('T')[0],
@@ -1536,7 +1544,7 @@ function ChatContent() {
             placeholder={
               isApprover
                 ? 'พิมพ์ "อนุมัติ", "ไม่อนุมัติ" หรือสอบถามระบบได้เลย...'
-                : 'พิมพ์คุยกับน้องเกต AI เช่น ขอออกไปไหน ตอนเทียง วันไหน...'
+                : 'พิมพ์คุยกับน้องเกต AI หรือแตะเลือกหัวข้อด้านบน...'
             }
             className="flex-1 py-2.5 px-4 bg-slate-100 border border-slate-200/60 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC]/20 focus:border-[#0066CC] transition-all"
           />
