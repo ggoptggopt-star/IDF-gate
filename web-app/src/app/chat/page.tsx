@@ -24,6 +24,7 @@ import {
   User,
   ThumbsUp,
   XCircle,
+  RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { LeaveRequest } from '@/types';
@@ -49,6 +50,8 @@ interface ChatMessage {
   sender: 'student' | 'bot' | 'system' | 'teacher';
   text?: string;
   time: string;
+  timestamp?: number;
+  dateStr?: string;
   poweredBy?: string;
   attachmentUrl?: string | null;
   requestCard?: LeaveRequest;
@@ -59,6 +62,46 @@ interface ChatMessage {
     time: string;
     maps_url: string;
   };
+}
+
+function formatDividerDate(ts: number, dateStr?: string): string {
+  const d = new Date(ts);
+  const now = new Date();
+
+  const isToday = d.toDateString() === now.toDateString();
+  const yesterday = new Date(now.getTime() - 86400000);
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+
+  const timeStr = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' น.';
+
+  if (isToday) {
+    return `วันนี้ เวลา ${timeStr}`;
+  }
+  if (isYesterday) {
+    return `เมื่อวานนี้ เวลา ${timeStr}`;
+  }
+
+  const thaiMonths = [
+    'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+    'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
+  ];
+  const day = d.getDate();
+  const month = thaiMonths[d.getMonth()];
+  const thaiYear = d.getFullYear() + 543;
+
+  return `${day} ${month} ${thaiYear} เวลา ${timeStr}`;
+}
+
+function shouldShowDivider(curr: ChatMessage, prev?: ChatMessage): boolean {
+  if (!prev) return true;
+
+  const currTs = curr.timestamp || Date.now();
+  const prevTs = prev.timestamp || currTs;
+
+  if (Math.abs(currTs - prevTs) > 15 * 60 * 1000) return true;
+  if (curr.dateStr && prev.dateStr && curr.dateStr !== prev.dateStr) return true;
+
+  return false;
 }
 
 function ChatContent() {
@@ -142,6 +185,43 @@ function ChatContent() {
     const savedKey = localStorage.getItem('sgp_gemini_api_key');
     if (savedKey) setGeminiApiKey(savedKey);
   }, []);
+
+  // Save chat messages to localStorage when updated (Student only)
+  useEffect(() => {
+    if (user?.role === 'student' && messages.length > 0) {
+      const studentId = user?.id || 'user-stu-akkaracha';
+      try {
+        localStorage.setItem(`sgp_chat_history_${studentId}`, JSON.stringify(messages));
+        localStorage.setItem(`sgp_chat_slots_${studentId}`, JSON.stringify(currentSlots));
+      } catch (e) {
+        console.warn('Failed to save chat to localStorage:', e);
+      }
+    }
+  }, [messages, currentSlots, user]);
+
+  const handleResetChat = () => {
+    if (confirm('คุณต้องการเริ่มการสนทนาใหม่และล้างประวัติแชทใช่หรือไม่?')) {
+      const studentId = user?.id || 'user-stu-akkaracha';
+      localStorage.removeItem(`sgp_chat_history_${studentId}`);
+      localStorage.removeItem(`sgp_chat_slots_${studentId}`);
+      setCurrentSlots({});
+      setMissingSlots([]);
+      setAskAttachmentNow(false);
+      setSelectedAttachmentUrl(null);
+      const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setMessages([
+        {
+          id: `welcome-${Date.now()}`,
+          sender: 'bot',
+          text: `สวัสดีครับคุณ ${user?.full_name || 'นักศึกษา'}! ผมคือน้องเกต AI ผู้ช่วยประจำวิทยาลัยการอาชีพองครักษ์ครับ\n\nสามารถสอบถามเวลา วันที่ ข้อมูลวิทยาลัย ตารางเวลาที่ออกได้ หรือพิมพ์แจ้งขออนุญาตออกนอกวิทยาลัยได้เลยครับ`,
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: new Date().toISOString().split('T')[0],
+          poweredBy: 'Google Gemini AI (gemini-3.5-flash-lite)',
+        },
+      ]);
+    }
+  };
 
   // Fetch requests based on role (Student vs Approver vs Guard) with live polling
   useEffect(() => {
@@ -264,6 +344,35 @@ function ChatContent() {
         } else {
           // Student view (or not logged in -> default to demo student)
           const studentId = user?.id || 'user-stu-akkaracha';
+
+          // Check if there is saved chat history in localStorage!
+          const savedHistoryStr = typeof window !== 'undefined' ? localStorage.getItem(`sgp_chat_history_${studentId}`) : null;
+          const savedSlotsStr = typeof window !== 'undefined' ? localStorage.getItem(`sgp_chat_slots_${studentId}`) : null;
+
+          if (savedHistoryStr && !isPolling) {
+            try {
+              const parsed = JSON.parse(savedHistoryStr);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setMessages(parsed);
+                if (savedSlotsStr) {
+                  try { setCurrentSlots(JSON.parse(savedSlotsStr)); } catch {}
+                }
+                const res = await fetch(`/api/requests?student_id=${studentId}`);
+                const data = await res.json();
+                if (data.success && data.requests && data.requests.length > 0) {
+                  const fresh = data.requests[0];
+                  setLatestRequest(fresh);
+                  setMessages((prev) =>
+                    prev.map((m) => (m.requestCard && m.requestCard.id === fresh.id ? { ...m, requestCard: fresh } : m))
+                  );
+                }
+                return;
+              }
+            } catch (err) {
+              console.error('Failed to parse saved chat history:', err);
+            }
+          }
+
           const res = await fetch(`/api/requests?student_id=${studentId}`);
           const data = await res.json();
 
@@ -557,6 +666,8 @@ function ChatContent() {
       sender: 'student',
       text: bubbleText,
       time: nowTime,
+      timestamp: Date.now(),
+      dateStr: new Date().toISOString().split('T')[0],
       attachmentUrl: attachUrl || undefined,
     };
     setMessages((prev) => [...prev, newStudentMsg]);
@@ -620,6 +731,8 @@ function ChatContent() {
             sender: 'bot',
             text: data.reply,
             time: nowTime,
+            timestamp: Date.now(),
+            dateStr: new Date().toISOString().split('T')[0],
             poweredBy: data.poweredBy,
             attachmentUrl: data.slots?.attachment_path || undefined,
             requestCard: data.request || undefined,
@@ -839,23 +952,37 @@ function ChatContent() {
           </div>
         </div>
 
-        {isApprover ? (
-          <Link
-            href="/approver"
-            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 shadow-sm transition-all"
-          >
-            <UserCheck className="w-3.5 h-3.5" />
-            <span>คิวอนุมัติ</span>
-          </Link>
-        ) : (
-          <Link
-            href="/gate"
-            className="px-3 py-1.5 bg-[#0077D7] hover:bg-[#0066CC] active:scale-95 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 shadow-sm transition-all"
-          >
-            <ScanFace className="w-3.5 h-3.5" />
-            <span>เปิดไม้กั้น</span>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {!isApprover && (
+            <button
+              type="button"
+              onClick={handleResetChat}
+              className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-slate-200 hover:text-white transition-all flex items-center gap-1 text-[11px] font-medium px-2.5"
+              title="เริ่มการสนทนาใหม่ (ล้างประวัติแชท)"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">เริ่มคุยใหม่</span>
+            </button>
+          )}
+
+          {isApprover ? (
+            <Link
+              href="/approver"
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 shadow-sm transition-all"
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>คิวอนุมัติ</span>
+            </Link>
+          ) : (
+            <Link
+              href="/gate"
+              className="px-3 py-1.5 bg-[#0077D7] hover:bg-[#0066CC] active:scale-95 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 shadow-sm transition-all"
+            >
+              <ScanFace className="w-3.5 h-3.5" />
+              <span>เปิดไม้กั้น</span>
+            </Link>
+          )}
+        </div>
       </header>
 
       {/* Active Slot-Filling Tracker Banner (For student role) */}
@@ -883,10 +1010,21 @@ function ChatContent() {
 
       {/* Messages Scroll Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
-        {messages.map((m) => {
+        {messages.map((m, index) => {
+          const prev = index > 0 ? messages[index - 1] : undefined;
+          const showDivider = shouldShowDivider(m, prev);
+          const dividerLabel = showDivider ? formatDividerDate(m.timestamp || Date.now(), m.dateStr) : null;
           if (m.sender === 'student') {
             return (
-              <div key={m.id} className="flex flex-col items-end">
+              <React.Fragment key={m.id}>
+                {showDivider && (
+                  <div className="flex justify-center my-3 select-none">
+                    <span className="text-[10.5px] font-semibold text-slate-500 bg-slate-200/80 px-3 py-1 rounded-full shadow-2xs tracking-wide border border-slate-300/40">
+                      {dividerLabel}
+                    </span>
+                  </div>
+                )}
+                <div className="flex flex-col items-end">
                 <div className="max-w-[85%] bg-[#DCE6F2] text-slate-800 text-xs rounded-2xl rounded-tr-xs px-4 py-3 shadow-2xs leading-relaxed space-y-2">
                   <div>{m.text}</div>
                   
@@ -910,11 +1048,20 @@ function ChatContent() {
                 </div>
                 <span className="text-[10px] text-slate-400 mt-1 mr-1">{m.time} • ส่งแล้ว</span>
               </div>
-            );
-          }
+            </React.Fragment>
+          );
+        }
 
-          return (
-            <div key={m.id} className="flex flex-col items-start max-w-[95%] space-y-2">
+        return (
+          <React.Fragment key={m.id}>
+            {showDivider && (
+              <div className="flex justify-center my-3 select-none">
+                <span className="text-[10.5px] font-semibold text-slate-500 bg-slate-200/80 px-3 py-1 rounded-full shadow-2xs tracking-wide border border-slate-300/40">
+                  {dividerLabel}
+                </span>
+              </div>
+            )}
+            <div className="flex flex-col items-start max-w-[95%] space-y-2">
               <div className="flex items-start gap-2">
                 <div className="w-7 h-7 rounded-full bg-[#03152B] flex items-center justify-center shrink-0 mt-1 text-cyan-400">
                   <Sparkles className="w-4 h-4" />
@@ -1144,8 +1291,9 @@ function ChatContent() {
                 </div>
               </div>
             </div>
-          );
-        })}
+          </React.Fragment>
+        );
+      })}
 
         {/* Home Pin Picker Card in Chat */}
         {!isApprover && (missingSlots.includes('home_pin') || (currentSlots.destination_name === 'บ้านพักอาศัย' && !currentSlots.destination_lat)) && (
