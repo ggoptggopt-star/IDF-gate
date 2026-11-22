@@ -7,8 +7,10 @@ interface AuthContextType {
   user: User | null;
   users: User[];
   isLoading: boolean;
-  login: (username: string, password?: string) => Promise<boolean>;
-  loginWithFace: (userId?: string) => Promise<boolean>;
+  rememberDevice: boolean;
+  setRememberDevice: (val: boolean) => void;
+  login: (username: string, password?: string, remember?: boolean) => Promise<boolean>;
+  loginWithFace: (userId?: string, remember?: boolean) => Promise<boolean>;
   switchRole: (identifier: string) => void;
   logout: () => void;
   refreshUsers: () => Promise<void>;
@@ -20,6 +22,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [rememberDevice, setRememberDevice] = useState<boolean>(true);
 
   const fetchUsers = async () => {
     try {
@@ -39,10 +42,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function initAuth() {
       setIsLoading(true);
       const allUsers = await fetchUsers();
-      
-      // Try to load saved user from localStorage
+
+      // Check if user has explicitly logged out on this device
+      const isLoggedOut = typeof window !== 'undefined' ? localStorage.getItem('sgp_logged_out') === 'true' : false;
       const savedUserId = typeof window !== 'undefined' ? localStorage.getItem('sgp_user_id') : null;
-      if (savedUserId && allUsers.length > 0) {
+
+      // 1. If user previously logged in and has saved ID (Remember Device):
+      if (!isLoggedOut && savedUserId && allUsers.length > 0) {
         const found = allUsers.find((u: User) => u.id === savedUserId);
         if (found) {
           setUser(found);
@@ -51,29 +57,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Default user is student นายอัครชา เปมะวิภาต (หัวหน้าผู้จัดทำ)
-      const defaultUser = allUsers.find((u: User) => u.username === '6731901001') || allUsers[0] || {
-        id: 'user-stu-akkaracha',
-        username: '6731901001',
-        full_name: 'นายอัครชา เปมะวิภาต',
-        role: 'student',
-        group_code: 'ปวส.2/1',
-        level: 'ปวส.',
-        department_name: 'แผนกวิชาเทคโนโลยีธุรกิจดิจิทัล',
-        pdpa_consented: 1,
-      };
-      
-      setUser(defaultUser);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('sgp_user_id', defaultUser.id);
-      }
+      // 2. If user is explicitly logged out or has no saved session:
+      // Stay logged out (user = null) so user can see login screen!
+      setUser(null);
       setIsLoading(false);
     }
 
     initAuth();
   }, []);
 
-  const login = async (username: string, password = ''): Promise<boolean> => {
+  const login = async (username: string, password = '', remember = true): Promise<boolean> => {
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -83,7 +76,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       if (data.success && data.user) {
         setUser(data.user);
-        localStorage.setItem('sgp_user_id', data.user.id);
+        if (typeof window !== 'undefined') {
+          if (remember) {
+            localStorage.setItem('sgp_user_id', data.user.id);
+            localStorage.setItem('sgp_remember_device', 'true');
+          } else {
+            sessionStorage.setItem('sgp_user_id', data.user.id);
+            localStorage.removeItem('sgp_user_id');
+          }
+          localStorage.removeItem('sgp_logged_out');
+        }
         return true;
       }
       return false;
@@ -93,14 +95,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const loginWithFace = async (userId?: string): Promise<boolean> => {
-    const targetUser = userId 
+  const loginWithFace = async (userId?: string, remember = true): Promise<boolean> => {
+    const targetUser = userId
       ? users.find((u) => u.id === userId)
       : users.find((u) => u.role === 'student');
-      
+
     if (targetUser) {
       setUser(targetUser);
-      localStorage.setItem('sgp_user_id', targetUser.id);
+      if (typeof window !== 'undefined') {
+        if (remember) {
+          localStorage.setItem('sgp_user_id', targetUser.id);
+          localStorage.setItem('sgp_remember_device', 'true');
+        } else {
+          sessionStorage.setItem('sgp_user_id', targetUser.id);
+          localStorage.removeItem('sgp_user_id');
+        }
+        localStorage.removeItem('sgp_logged_out');
+      }
       return true;
     }
     return false;
@@ -114,13 +125,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     if (found) {
       setUser(found);
-      localStorage.setItem('sgp_user_id', found.id);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sgp_user_id', found.id);
+        localStorage.removeItem('sgp_logged_out');
+        localStorage.setItem('sgp_remember_device', 'true');
+      }
     }
   };
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem('sgp_user_id');
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('sgp_user_id');
+      sessionStorage.removeItem('sgp_user_id');
+      localStorage.setItem('sgp_logged_out', 'true');
+    }
   };
 
   return (
@@ -129,6 +148,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         users,
         isLoading,
+        rememberDevice,
+        setRememberDevice,
         login,
         loginWithFace,
         switchRole,

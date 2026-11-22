@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -20,7 +20,13 @@ import BankingFaceKycModal from '@/components/BankingFaceKycModal';
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user, logout, refreshUsers } = useAuth();
+  const { user, isLoading, logout, refreshUsers } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.replace('/login');
+    }
+  }, [user, isLoading, router]);
 
   const [autoOpenGate, setAutoOpenGate] = useState(true);
   const [notifyParents, setNotifyParents] = useState(true);

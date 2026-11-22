@@ -23,10 +23,16 @@ import {
 
 export default function HomePage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'student' | 'approver'>('student');
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.replace('/login');
+    }
+  }, [user, isLoading, router]);
 
   const isApprover = user && ['subject_teacher', 'advisor', 'dept_head', 'discipline', 'deputy_director', 'admin'].includes(user.role);
 

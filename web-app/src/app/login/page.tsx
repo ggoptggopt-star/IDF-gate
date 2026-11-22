@@ -8,13 +8,27 @@ import BankingFaceKycModal from '@/components/BankingFaceKycModal';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, loginWithFace, users } = useAuth();
+  const { user, isLoading, login, loginWithFace, users } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'login' | 'enroll'>('login');
   const [username, setUsername] = useState('6731901001'); // Default demo: นายอัครชา
   const [password, setPassword] = useState('123456');
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Auto redirect if already logged in on this device
+  useEffect(() => {
+    if (!isLoading && user) {
+      if (user.role === 'student') {
+        router.replace('/chat');
+      } else if (user.role === 'guard') {
+        router.replace('/gate');
+      } else {
+        router.replace('/approver');
+      }
+    }
+  }, [user, isLoading, router]);
 
   // Face ID modal state
   const [showFaceModal, setShowFaceModal] = useState(false);
@@ -34,11 +48,11 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
 
-    const ok = await login(username, password);
+    const ok = await login(username, password, rememberMe);
     setLoading(false);
 
     if (ok) {
-      router.push('/');
+      router.push('/chat');
     } else {
       setError('รหัสนักศึกษา/บุคลากร หรือรหัสผ่านไม่ถูกต้อง');
     }
@@ -55,9 +69,9 @@ export default function LoginPage() {
         setMatchedStudentName(demoStudent.full_name);
         setFaceScanState('matched');
         setTimeout(async () => {
-          await loginWithFace(demoStudent.id);
+          await loginWithFace(demoStudent.id, rememberMe);
           setShowFaceModal(false);
-          router.push('/');
+          router.push('/chat');
         }, 1200);
       } else {
         setFaceScanState('failed');
@@ -198,6 +212,19 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {/* Remember Device Toggle */}
+            <div className="flex items-center justify-between py-0.5 px-1">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-[#0066CC] focus:ring-[#0066CC]"
+                />
+                <span className="text-xs text-slate-600 font-medium">จดจำบัญชีในอุปกรณ์นี้ (ไม่ต้องล็อกอินซ้ำ)</span>
+              </label>
+            </div>
+
             <button
               type="submit"
               disabled={loading}
@@ -215,6 +242,45 @@ export default function LoginPage() {
               <ScanFace className="w-4 h-4 text-[#0066CC]" />
               <span>สแกนใบหน้าเพื่อเข้าสู่ระบบ (Face ID)</span>
             </button>
+
+            {/* Demo Quick Sign-in Card */}
+            <div className="pt-3 border-t border-slate-100">
+              <p className="text-[11px] font-semibold text-slate-500 mb-2 text-center">หรือแตะเลือกบัญชีเพื่อทดสอบระบบ (1 คลิก):</p>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => { setUsername('6731901001'); setPassword('123456'); }}
+                  className="p-2 text-left bg-blue-50/70 hover:bg-blue-100/70 border border-blue-200/60 rounded-xl transition-all"
+                >
+                  <p className="text-[11px] font-bold text-blue-800">🎓 นศ. อัครชา (ปวส.2)</p>
+                  <p className="text-[10px] text-blue-600">รหัส: 6731901001</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setUsername('teacher_atthamed'); setPassword('123456'); }}
+                  className="p-2 text-left bg-emerald-50/70 hover:bg-emerald-100/70 border border-emerald-200/60 rounded-xl transition-all"
+                >
+                  <p className="text-[11px] font-bold text-emerald-800">👨‍🏫 ครูอรรถเมธ (ขั้น 1)</p>
+                  <p className="text-[10px] text-emerald-600">ครูผู้สอน / ครูที่ปรึกษา</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setUsername('head_pattana'); setPassword('123456'); }}
+                  className="p-2 text-left bg-amber-50/70 hover:bg-amber-100/70 border border-amber-200/60 rounded-xl transition-all"
+                >
+                  <p className="text-[11px] font-bold text-amber-800">👔 หน.แผนก พัฒนา (ขั้น 3)</p>
+                  <p className="text-[10px] text-amber-600">หัวหน้าแผนก ทธด.</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setUsername('deputy_chaiyot'); setPassword('123456'); }}
+                  className="p-2 text-left bg-purple-50/70 hover:bg-purple-100/70 border border-purple-200/60 rounded-xl transition-all"
+                >
+                  <p className="text-[11px] font-bold text-purple-800">🎖️ รอง ผอ. ชัยยศ (ขั้น 5)</p>
+                  <p className="text-[10px] text-purple-600">ผู้อนุมัติปลดล็อกไม้กั้น</p>
+                </button>
+              </div>
+            </div>
           </form>
         ) : (
           /* Enrollment Tab */

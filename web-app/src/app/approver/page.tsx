@@ -1,11 +1,21 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/context/AuthContext';
 import ApproverDashboard from '@/components/ApproverDashboard';
 import { ChevronLeft } from 'lucide-react';
 
 export default function ApproverPage() {
+  const router = useRouter();
+  const { user, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.replace('/login');
+    }
+  }, [user, isLoading, router]);
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center gap-2 pt-2">
