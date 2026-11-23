@@ -994,85 +994,90 @@ function ChatContent() {
       )}
 
       {/* Top Header */}
-      <header className="px-4 py-3 bg-[#03152B] text-white flex items-center justify-between sticky top-0 z-30 shadow-sm">
-        <div className="flex items-center gap-3">
-          <Link
-            href="/"
-            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </Link>
+      <header className="px-4 py-3 bg-[#03152B] text-white sticky top-0 z-30 shadow-sm">
+        <div className="w-full max-w-4xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </Link>
 
-          <div>
-            <div className="flex items-center gap-1.5">
-              <h1 className="font-bold text-sm tracking-wide">AI Messaging</h1>
-              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-              <span className="text-[10px] text-emerald-400 font-medium">Online</span>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <h1 className="font-bold text-sm tracking-wide">AI Messaging</h1>
+                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <span className="text-[10px] text-emerald-400 font-medium">Online</span>
+              </div>
+              <p className="text-[10px] text-slate-300">
+                {isApprover ? `${user?.full_name} (${getRoleTitle(user?.role)})` : 'ระบบขออนุญาต & ไม้กั้น AI (OICEC)'}
+              </p>
             </div>
-            <p className="text-[10px] text-slate-300">
-              {isApprover ? `${user?.full_name} (${getRoleTitle(user?.role)})` : 'ระบบขออนุญาต & ไม้กั้น AI (OICEC)'}
-            </p>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          {!isApprover && (
-            <button
-              type="button"
-              onClick={handleResetChat}
-              className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-slate-200 hover:text-white transition-all flex items-center gap-1 text-[11px] font-medium px-2.5"
-              title="เริ่มการสนทนาใหม่ (ล้างประวัติแชท)"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">เริ่มคุยใหม่</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {!isApprover && (
+              <button
+                type="button"
+                onClick={handleResetChat}
+                className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-slate-200 hover:text-white transition-all flex items-center gap-1 text-[11px] font-medium px-2.5"
+                title="เริ่มการสนทนาใหม่ (ล้างประวัติแชท)"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">เริ่มคุยใหม่</span>
+              </button>
+            )}
 
-          {isApprover ? (
-            <Link
-              href="/approver"
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 shadow-sm transition-all"
-            >
-              <UserCheck className="w-3.5 h-3.5" />
-              <span>คิวอนุมัติ</span>
-            </Link>
-          ) : (
-            <Link
-              href="/gate"
-              className="px-3 py-1.5 bg-[#0077D7] hover:bg-[#0066CC] active:scale-95 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 shadow-sm transition-all"
-            >
-              <ScanFace className="w-3.5 h-3.5" />
-              <span>เปิดไม้กั้น</span>
-            </Link>
-          )}
+            {isApprover ? (
+              <Link
+                href="/approver"
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 shadow-sm transition-all"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>คิวอนุมัติ</span>
+              </Link>
+            ) : (
+              <Link
+                href="/gate"
+                className="px-3 py-1.5 bg-[#0077D7] hover:bg-[#0066CC] active:scale-95 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 shadow-sm transition-all"
+              >
+                <ScanFace className="w-3.5 h-3.5" />
+                <span>เปิดไม้กั้น</span>
+              </Link>
+            )}
+          </div>
         </div>
       </header>
 
       {/* Active Slot-Filling Tracker Banner (For student role) */}
       {!isApprover && (currentSlots.destination_name || currentSlots.reason || currentSlots.allowed_start_time || currentSlots.leave_date) && !latestRequest?.id && (
-        <div className="bg-blue-50 border-b border-blue-200/80 px-4 py-2 flex items-center justify-between text-[11px] animate-fadeIn">
-          <div className="flex items-center gap-2 text-blue-900 font-medium truncate">
-            <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
-            <span className="font-bold">ข้อมูลที่ AI กำลังจำ:</span>
-            <span>📅 {currentSlots.leave_date_text || currentSlots.leave_date || 'รอระบุวัน'}</span>
-            <span>• 📍 {currentSlots.destination_name || 'รอระบุสถานที่'}</span>
-            <span>• ⏰ {currentSlots.allowed_start_time ? `${currentSlots.allowed_start_time}-${currentSlots.allowed_end_time} น.` : 'รอระบุเวลา'}</span>
+        <div className="bg-blue-50 border-b border-blue-200/80 px-4 py-2 animate-fadeIn">
+          <div className="w-full max-w-4xl mx-auto flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-2 text-blue-900 font-medium truncate">
+              <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+              <span className="font-bold">ข้อมูลที่ AI กำลังจำ:</span>
+              <span>📅 {currentSlots.leave_date_text || currentSlots.leave_date || 'รอระบุวัน'}</span>
+              <span>• 📍 {currentSlots.destination_name || 'รอระบุสถานที่'}</span>
+              <span>• ⏰ {currentSlots.allowed_start_time ? `${currentSlots.allowed_start_time}-${currentSlots.allowed_end_time} น.` : 'รอระบุเวลา'}</span>
+            </div>
+            <button
+              onClick={() => {
+                setCurrentSlots({});
+                setMissingSlots([]);
+                setAskAttachmentNow(false);
+              }}
+              className="text-[10px] text-blue-600 hover:underline font-semibold shrink-0"
+            >
+              เริ่มใหม่
+            </button>
           </div>
-          <button
-            onClick={() => {
-              setCurrentSlots({});
-              setMissingSlots([]);
-              setAskAttachmentNow(false);
-            }}
-            className="text-[10px] text-blue-600 hover:underline font-semibold shrink-0"
-          >
-            เริ่มใหม่
-          </button>
         </div>
       )}
 
       {/* Messages Scroll Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+        <div className="w-full max-w-4xl mx-auto space-y-4">
         {messages.map((m, index) => {
           const prev = index > 0 ? messages[index - 1] : undefined;
           const divider = getMessengerDivider(m, prev);
@@ -1412,105 +1417,110 @@ function ChatContent() {
           </div>
         )}
 
+        </div>
         <div ref={messagesEndRef} />
       </div>
 
       {/* Approver Quick Action Bar */}
       {isApprover ? (
-        <div className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-slate-900 text-white">
-          <span className="text-[10px] font-bold text-emerald-400 shrink-0">คำสั่งครูด่วน:</span>
+        <div className="px-3 py-1.5 bg-slate-900 text-white">
+          <div className="w-full max-w-4xl mx-auto flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            <span className="text-[10px] font-bold text-emerald-400 shrink-0">คำสั่งครูด่วน:</span>
 
-          {pendingRequests.length > 0 && (
-            <button
-              onClick={() => handleSend(undefined, false, undefined, 'อนุมัติครับ')}
-              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-full text-[11px] font-bold shrink-0 shadow-sm flex items-center gap-1 transition-all"
+            {pendingRequests.length > 0 && (
+              <button
+                onClick={() => handleSend(undefined, false, undefined, 'อนุมัติครับ')}
+                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-full text-[11px] font-bold shrink-0 shadow-sm flex items-center gap-1 transition-all"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>✓ อนุมัติคำร้องล่าสุด</span>
+              </button>
+            )}
+
+            <Link
+              href="/approver"
+              className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-full text-[11px] font-medium shrink-0 flex items-center gap-1 transition-all"
             >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>✓ อนุมัติคำร้องล่าสุด</span>
+              <UserCheck className="w-3.5 h-3.5 text-blue-300" />
+              <span>ดูรายการทั้งหมด ({pendingRequests.length})</span>
+            </Link>
+
+            <button
+              onClick={() => handleSend(undefined, false, undefined, 'สรุปคำร้องที่รอการอนุมัติวันนี้')}
+              className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-full text-[11px] font-medium shrink-0 transition-all"
+            >
+              📊 สรุปยอดคำร้อง
             </button>
-          )}
-
-          <Link
-            href="/approver"
-            className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-full text-[11px] font-medium shrink-0 flex items-center gap-1 transition-all"
-          >
-            <UserCheck className="w-3.5 h-3.5 text-blue-300" />
-            <span>ดูรายการทั้งหมด ({pendingRequests.length})</span>
-          </Link>
-
-          <button
-            onClick={() => handleSend(undefined, false, undefined, 'สรุปคำร้องที่รอการอนุมัติวันนี้')}
-            className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-full text-[11px] font-medium shrink-0 transition-all"
-          >
-            📊 สรุปยอดคำร้อง
-          </button>
+          </div>
         </div>
       ) : (
         /* Student Quick Action Bar */
-        <div className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-[#F4F7FB]">
-          {/* 1-Click Instant Request Demo Button */}
-          <button
-            onClick={handleQuickInstantRequest}
-            disabled={isSubmitting}
-            className="px-3 py-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-white font-bold rounded-full text-[11px] whitespace-nowrap shadow-sm flex items-center gap-1 active:scale-95 transition-all shrink-0 border border-amber-300/40"
-            title="กดปุ่มนี้เพื่อยื่นคำร้องตัวอย่างทันทีโดยไม่ต้องพิมพ์ข้อมูล (โหมดสาธิต 1 คลิก)"
-          >
-            <span>⚡ ยื่นคำร้องด่วน (1 คลิก)</span>
-          </button>
+        <div className="px-3 py-1.5 bg-[#F4F7FB]">
+          <div className="w-full max-w-4xl mx-auto flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            {/* 1-Click Instant Request Demo Button */}
+            <button
+              onClick={handleQuickInstantRequest}
+              disabled={isSubmitting}
+              className="px-3 py-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-white font-bold rounded-full text-[11px] whitespace-nowrap shadow-sm flex items-center gap-1 active:scale-95 transition-all shrink-0 border border-amber-300/40"
+              title="กดปุ่มนี้เพื่อยื่นคำร้องตัวอย่างทันทีโดยไม่ต้องพิมพ์ข้อมูล (โหมดสาธิต 1 คลิก)"
+            >
+              <span>⚡ ยื่นคำร้องด่วน (1 คลิก)</span>
+            </button>
 
-          <button
-            onClick={() => handleSend(undefined, false, undefined, 'ขอออก')}
-            disabled={isSubmitting}
-            className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
-          >
-            <span>🚪 ขอออก</span>
-          </button>
+            <button
+              onClick={() => handleSend(undefined, false, undefined, 'ขอออก')}
+              disabled={isSubmitting}
+              className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
+            >
+              <span>🚪 ขอออก</span>
+            </button>
 
-          <button
-            onClick={() => handleSend(undefined, false, undefined, 'ขอไปพบแพทย์ตามนัด')}
-            disabled={isSubmitting}
-            className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
-          >
-            <span>🏥 ขอไปพบแพทย์ตามนัด</span>
-          </button>
+            <button
+              onClick={() => handleSend(undefined, false, undefined, 'ขอไปพบแพทย์ตามนัด')}
+              disabled={isSubmitting}
+              className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
+            >
+              <span>🏥 ขอไปพบแพทย์ตามนัด</span>
+            </button>
 
-          <button
-            onClick={() => handleSend(undefined, false, undefined, 'ผู้ปกครองมารับกลับบ้านก่อนเวลา')}
-            disabled={isSubmitting}
-            className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
-          >
-            <span>🚗 ผู้ปกครองมารับ</span>
-          </button>
+            <button
+              onClick={() => handleSend(undefined, false, undefined, 'ผู้ปกครองมารับกลับบ้านก่อนเวลา')}
+              disabled={isSubmitting}
+              className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
+            >
+              <span>🚗 ผู้ปกครองมารับ</span>
+            </button>
 
-          <button
-            onClick={() => handleSend(undefined, false, undefined, 'เช็คสถานะคำร้องล่าสุดของฉัน')}
-            disabled={isSubmitting}
-            className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
-          >
-            <span>📊 เช็คสถานะคำร้อง</span>
-          </button>
+            <button
+              onClick={() => handleSend(undefined, false, undefined, 'เช็คสถานะคำร้องล่าสุดของฉัน')}
+              disabled={isSubmitting}
+              className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
+            >
+              <span>📊 เช็คสถานะคำร้อง</span>
+            </button>
 
-          <button
-            onClick={() => handleSend(undefined, false, undefined, 'วิธีสแกนใบหน้าเปิดไม้กั้นประตู')}
-            disabled={isSubmitting}
-            className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
-          >
-            <span>🔒 วิธีสแกนไม้กั้น</span>
-          </button>
+            <button
+              onClick={() => handleSend(undefined, false, undefined, 'วิธีสแกนใบหน้าเปิดไม้กั้นประตู')}
+              disabled={isSubmitting}
+              className="px-3 py-1.5 bg-[#EAF7F6] border border-[#BCE8E0] text-[#0A695E] rounded-full text-[11px] font-semibold whitespace-nowrap shadow-2xs hover:bg-[#D5EFEA] flex items-center gap-1 active:scale-95 transition-all shrink-0 cursor-pointer"
+            >
+              <span>🔒 วิธีสแกนไม้กั้น</span>
+            </button>
 
-          <button
-            onClick={handleGpsCheckin}
-            className="px-3 py-1.5 bg-white border border-emerald-200 rounded-full text-[11px] font-medium text-emerald-800 whitespace-nowrap shadow-2xs hover:bg-emerald-50 flex items-center gap-1 shrink-0"
-          >
-            <span>📍 เช็คอินจุดหมาย</span>
-          </button>
+            <button
+              onClick={handleGpsCheckin}
+              className="px-3 py-1.5 bg-white border border-emerald-200 rounded-full text-[11px] font-medium text-emerald-800 whitespace-nowrap shadow-2xs hover:bg-emerald-50 flex items-center gap-1 shrink-0"
+            >
+              <span>📍 เช็คอินจุดหมาย</span>
+            </button>
 
-          <button
-            onClick={handleReturnReport}
-            className="px-3 py-1.5 bg-white border border-blue-200 rounded-full text-[11px] font-medium text-[#0066CC] whitespace-nowrap shadow-2xs hover:bg-blue-50 flex items-center gap-1"
-          >
-            <span>✅ รายงานตัวกลับเข้าวิทยาลัย</span>
-          </button>
+            <button
+              onClick={handleReturnReport}
+              className="px-3 py-1.5 bg-white border border-blue-200 rounded-full text-[11px] font-medium text-[#0066CC] whitespace-nowrap shadow-2xs hover:bg-blue-50 flex items-center gap-1"
+            >
+              <span>✅ รายงานตัวกลับเข้าวิทยาลัย</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -1525,7 +1535,8 @@ function ChatContent() {
 
       {/* Bottom Input Field Bar */}
       <div className="p-3 bg-white border-t border-slate-200/80 sticky bottom-16 z-30">
-        <form onSubmit={(e) => handleSend(e, false)} className="flex items-center gap-2">
+        <div className="w-full max-w-4xl mx-auto">
+          <form onSubmit={(e) => handleSend(e, false)} className="flex items-center gap-2">
           {!isApprover && (
             <button
               type="button"
@@ -1561,6 +1572,7 @@ function ChatContent() {
             <Send className="w-4 h-4 ml-0.5" />
           </button>
         </form>
+        </div>
       </div>
     </div>
   );

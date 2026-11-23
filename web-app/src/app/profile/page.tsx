@@ -98,25 +98,27 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-4 md:p-6 lg:p-8 space-y-4 md:space-y-6 w-full mx-auto">
       {/* Top Header Section (Screen 4 Header) */}
       <div className="flex items-center justify-between pt-2">
-        <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+        <h2 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight">
           ข้อมูลนักศึกษา & ใบหน้า AI
         </h2>
 
         {/* Right Button "ทดสอบสแกน" */}
         <button
           onClick={handleTestScan}
-          className="px-3 py-1.5 bg-white hover:bg-slate-50 text-[#0066CC] border border-blue-200 rounded-2xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all"
+          className="px-3.5 py-2 bg-white hover:bg-slate-50 text-[#0066CC] border border-blue-200 rounded-2xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
         >
           <ScanFace className="w-4 h-4 text-[#0066CC]" />
           <span>ทดสอบสแกน</span>
         </button>
       </div>
 
-      {/* Main Profile Card */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm text-center">
+      {/* Responsive 2-Column Grid on Tablet/Desktop */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 items-start">
+        {/* Left Column: Main Profile Card */}
+        <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm text-center">
         {/* Large Avatar */}
         <div className="relative w-24 h-24 mx-auto mb-3">
           <div className="w-full h-full rounded-full bg-slate-100 border-4 border-[#0066CC] flex items-center justify-center font-bold text-slate-800 text-2xl shadow-sm">
@@ -175,8 +177,10 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* Settings Card ("การเชื่อมต่อผู้ปกครอง & ไม้กั้นอัตโนมัติ") */}
-      <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm space-y-4">
+      {/* Right Column: Settings Card & Logout */}
+      <div className="space-y-4">
+        {/* Settings Card ("การเชื่อมต่อผู้ปกครอง & ไม้กั้นอัตโนมัติ") */}
+        <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm space-y-4">
         <h4 className="text-xs font-bold text-slate-800">
           การเชื่อมต่อผู้ปกครอง & ไม้กั้นอัตโนมัติ
         </h4>
@@ -292,6 +296,8 @@ export default function ProfilePage() {
         <LogOut className="w-4 h-4" />
         <span>ออกจากระบบ</span>
       </button>
+      </div>
+      </div>
 
       {/* Test Scan Modal */}
       {showTestScanModal && (

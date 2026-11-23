@@ -23,7 +23,7 @@ export default function DemoRoleSwitcher() {
   return (
     <>
       <div className="bg-slate-900 text-slate-100 text-xs py-1.5 px-3 border-b border-slate-700 sticky top-0 z-50 shadow-md">
-        <div className="flex items-center justify-between gap-2 max-w-lg mx-auto">
+        <div className="flex items-center justify-between gap-2 max-w-7xl mx-auto px-1 sm:px-3">
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             <span className="font-semibold text-slate-300 hidden sm:inline">สลับสิทธิ์สาธิต:</span>

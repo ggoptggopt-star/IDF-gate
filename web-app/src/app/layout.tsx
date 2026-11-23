@@ -34,8 +34,8 @@ export default function RootLayout({
           {/* 1-Step PDPA Consent & GPS Activation Modal */}
           <PdpaGpsModal />
 
-          {/* Mobile-First Centered Container */}
-          <div className="max-w-md mx-auto min-h-screen bg-[#F4F7FB] shadow-2xl relative flex flex-col pb-20">
+          {/* Responsive Adaptive Container (Mobile to Desktop) */}
+          <div className="w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl mx-auto min-h-screen bg-[#F4F7FB] shadow-2xl relative flex flex-col pb-20 md:pb-24 transition-all">
             {children}
             <BottomNav />
           </div>

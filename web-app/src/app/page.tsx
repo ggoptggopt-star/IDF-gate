@@ -78,7 +78,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-4 md:p-6 lg:p-8 space-y-4 md:space-y-6 w-full mx-auto">
       {/* Header Profile Section */}
       <div className="flex items-center justify-between pt-2">
         <div>
@@ -140,102 +140,117 @@ export default function HomePage() {
       ) : (
         /* Render Student Home Dashboard */
         <>
-          {/* ACTIVE PASS Card (Screen 2 Hero Card) */}
-          {activePass ? (
-            <div className="bg-gradient-to-br from-[#0066CC] via-[#0055B3] to-[#0A4791] rounded-3xl p-5 text-white shadow-lg shadow-blue-900/15 relative overflow-hidden">
-              <div className="absolute -right-8 -bottom-8 w-40 h-40 bg-white/5 rounded-full blur-xl pointer-events-none"></div>
+          {/* Top Status & Pass Cards Grid (Responsive 2-col on md+) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* ACTIVE PASS Card (Screen 2 Hero Card) */}
+            {activePass ? (
+              <div className="bg-gradient-to-br from-[#0066CC] via-[#0055B3] to-[#0A4791] rounded-3xl p-5 text-white shadow-lg shadow-blue-900/15 relative overflow-hidden flex flex-col justify-between">
+                <div className="absolute -right-8 -bottom-8 w-40 h-40 bg-white/5 rounded-full blur-xl pointer-events-none"></div>
 
-              <div className="flex items-center justify-between mb-3 text-xs">
-                <div className="inline-flex items-center gap-1.5 bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-white font-medium border border-white/20">
-                  <span className="w-2 h-2 rounded-full bg-cyan-300 animate-pulse"></span>
-                  <span>ใบอนุญาตมีผลใช้งาน (ACTIVE PASS)</span>
-                </div>
-                <span className="font-mono text-white/90 text-[11px] font-semibold">{activePass.request_code}</span>
-              </div>
-
-              <h3 className="text-lg font-bold tracking-tight mb-1">
-                อนุญาตออกนอกวิทยาลัยชั่วคราว
-              </h3>
-              <p className="text-xs text-blue-100 leading-relaxed mb-4">
-                เหตุผล: {activePass.reason} • เวลา {activePass.allowed_start_time} - {activePass.allowed_end_time} น.
-                {activePass.destination_name && (
-                  <span className="block text-cyan-200 text-[11px] mt-0.5">
-                    📍 ปลายทาง: {activePass.destination_name}
-                  </span>
-                )}
-              </p>
-
-              <div className="border-t border-white/15 pt-3 flex items-center justify-between">
                 <div>
-                  <p className="text-[11px] text-blue-200">
-                    อนุมัติโดย: ครูอรรถเมธ (ที่ปรึกษา) & รอง ผอ.
-                  </p>
-                  <p className="text-xs font-semibold text-emerald-300 flex items-center gap-1 mt-0.5">
-                    <span>สถานะ:</span>
-                    <span>
-                      {activePass.overall_status === 'completed_exit'
-                        ? 'กำลังเดินทาง (Rider Mode)'
-                        : 'พร้อมสแกนใบหน้าเปิดไม้กั้น'}
-                    </span>
+                  <div className="flex items-center justify-between mb-3 text-xs">
+                    <div className="inline-flex items-center gap-1.5 bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-white font-medium border border-white/20">
+                      <span className="w-2 h-2 rounded-full bg-cyan-300 animate-pulse"></span>
+                      <span>ใบอนุญาตมีผลใช้งาน (ACTIVE PASS)</span>
+                    </div>
+                    <span className="font-mono text-white/90 text-[11px] font-semibold">{activePass.request_code}</span>
+                  </div>
+
+                  <h3 className="text-lg font-bold tracking-tight mb-1">
+                    อนุญาตออกนอกวิทยาลัยชั่วคราว
+                  </h3>
+                  <p className="text-xs text-blue-100 leading-relaxed mb-4">
+                    เหตุผล: {activePass.reason} • เวลา {activePass.allowed_start_time} - {activePass.allowed_end_time} น.
+                    {activePass.destination_name && (
+                      <span className="block text-cyan-200 text-[11px] mt-0.5">
+                        📍 ปลายทาง: {activePass.destination_name}
+                      </span>
+                    )}
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Link
-                    href={`/trip/${activePass.id}`}
-                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 px-3 py-2 rounded-2xl text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
-                  >
-                    <span>หน้าเดินทางสด</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </Link>
+                <div className="border-t border-white/15 pt-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] text-blue-200">
+                      อนุมัติโดย: ครูอรรถเมธ (ที่ปรึกษา) & รอง ผอ.
+                    </p>
+                    <p className="text-xs font-semibold text-emerald-300 flex items-center gap-1 mt-0.5">
+                      <span>สถานะ:</span>
+                      <span>
+                        {activePass.overall_status === 'completed_exit'
+                          ? 'กำลังเดินทาง (Rider Mode)'
+                          : 'พร้อมสแกนใบหน้าเปิดไม้กั้น'}
+                      </span>
+                    </p>
+                  </div>
 
-                  {activePass.overall_status === 'approved' && (
+                  <div className="flex items-center gap-2">
                     <Link
-                      href="/gate"
-                      className="bg-white text-[#0066CC] hover:bg-blue-50 px-3 py-2 rounded-2xl text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                      href={`/trip/${activePass.id}`}
+                      className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 px-3 py-2 rounded-2xl text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
                     >
-                      <ScanFace className="w-4 h-4 text-[#0066CC]" />
-                      <span>สแกนไม้กั้น</span>
+                      <span>หน้าเดินทางสด</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
                     </Link>
-                  )}
+
+                    {activePass.overall_status === 'approved' && (
+                      <Link
+                        href="/gate"
+                        className="bg-white text-[#0066CC] hover:bg-blue-50 px-3 py-2 rounded-2xl text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                      >
+                        <ScanFace className="w-4 h-4 text-[#0066CC]" />
+                        <span>สแกนไม้กั้น</span>
+                      </Link>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : (
-            <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm text-center">
-              <div className="w-12 h-12 bg-blue-50 text-[#0066CC] rounded-full flex items-center justify-center mx-auto mb-2">
-                <Clock className="w-6 h-6" />
+            ) : (
+              <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm text-center flex flex-col items-center justify-center min-h-[170px]">
+                <div className="w-12 h-12 bg-blue-50 text-[#0066CC] rounded-full flex items-center justify-center mx-auto mb-2">
+                  <Clock className="w-6 h-6" />
+                </div>
+                <h3 className="font-bold text-slate-800 text-sm">ยังไม่มีบัตรผ่านที่ได้รับอนุมัติในเวลานี้</h3>
+                <p className="text-xs text-slate-500 mt-1 mb-3">คุณสามารถยื่นขออนุญาตด่วนผ่านแชท AI ด้านล่างนี้ได้เลย</p>
+                <Link
+                  href="/chat"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#0066CC] text-white text-xs font-semibold rounded-xl"
+                >
+                  <span>ยื่นคำร้องผ่านแชท AI</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
               </div>
-              <h3 className="font-bold text-slate-800 text-sm">ยังไม่มีบัตรผ่านที่ได้รับอนุมัติในเวลานี้</h3>
-              <p className="text-xs text-slate-500 mt-1 mb-3">คุณสามารถยื่นขออนุญาตด่วนผ่านแชท AI ด้านล่างนี้ได้เลย</p>
-              <Link
-                href="/chat"
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#0066CC] text-white text-xs font-semibold rounded-xl"
-              >
-                <span>ยื่นคำร้องผ่านแชท AI</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
-            </div>
-          )}
+            )}
 
-          {/* Gate 1 AI Status Banner */}
-          <div className="bg-white rounded-3xl p-4 border border-slate-100 shadow-sm flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
-                <ShieldCheck className="w-6 h-6" />
+            {/* Gate 1 AI Status Banner */}
+            <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex flex-col justify-between">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
+                    <ShieldCheck className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800">
+                      ป้อมยามประตู 1 (กล้อง AI ออนไลน์)
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      ระบบจดจำใบหน้า 468 จุด เชื่อมกับชุดควบคุมไม้กั้น
+                    </p>
+                  </div>
+                </div>
+                <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-full">
+                  พร้อมเปิด
+                </span>
               </div>
-              <div>
-                <h4 className="text-xs font-bold text-slate-800">
-                  ป้อมยามประตู 1 (กล้อง AI ออนไลน์)
-                </h4>
-                <p className="text-[11px] text-slate-400">
-                  ระบบจดจำใบหน้าเชื่อมกับชุดควบคุมไม้กั้น
-                </p>
+
+              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                <span>อัตราการตรวจจับแม่นยำ: 99.4%</span>
+                <Link href="/gate" className="text-[#0066CC] font-semibold hover:underline flex items-center gap-1">
+                  <span>ทดสอบสแกนไม้กั้น</span>
+                  <ArrowRight className="w-3 h-3" />
+                </Link>
               </div>
             </div>
-            <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-full">
-              พร้อมเปิด
-            </span>
           </div>
 
           {/* Quick Action Grid (4 Categories matching Screen 2) */}
@@ -249,10 +264,10 @@ export default function HomePage() {
               </Link>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
               <Link
                 href="/chat?category=medical"
-                className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-sm hover:border-blue-200 transition-all flex flex-col justify-between h-24"
+                className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-sm hover:border-blue-200 transition-all flex flex-col justify-between h-24 hover:shadow-md"
               >
                 <div className="w-8 h-8 rounded-xl bg-blue-50 text-[#0066CC] flex items-center justify-center">
                   <Stethoscope className="w-4 h-4" />
@@ -265,7 +280,7 @@ export default function HomePage() {
 
               <Link
                 href="/chat?category=personal"
-                className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-sm hover:border-blue-200 transition-all flex flex-col justify-between h-24"
+                className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-sm hover:border-blue-200 transition-all flex flex-col justify-between h-24 hover:shadow-md"
               >
                 <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
                   <Briefcase className="w-4 h-4" />
@@ -278,7 +293,7 @@ export default function HomePage() {
 
               <Link
                 href="/chat?category=department"
-                className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-sm hover:border-blue-200 transition-all flex flex-col justify-between h-24"
+                className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-sm hover:border-blue-200 transition-all flex flex-col justify-between h-24 hover:shadow-md"
               >
                 <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
                   <FolderKanban className="w-4 h-4" />
@@ -291,7 +306,7 @@ export default function HomePage() {
 
               <Link
                 href="/chat?category=parent_pickup"
-                className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-sm hover:border-blue-200 transition-all flex flex-col justify-between h-24"
+                className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-sm hover:border-blue-200 transition-all flex flex-col justify-between h-24 hover:shadow-md"
               >
                 <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
                   <Home className="w-4 h-4" />
@@ -313,7 +328,7 @@ export default function HomePage() {
               <span className="text-[11px] text-slate-400">ภาคเรียนที่ 2/2569</span>
             </div>
 
-            <div className="space-y-2.5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
               {requests.map((r) => {
                 const isApproved = r.overall_status === 'approved';
                 const isCompleted = r.overall_status === 'completed_exit' || r.overall_status === 'returned';

@@ -227,10 +227,10 @@ export default function ApproverDashboard() {
         </button>
       </div>
 
-      {/* Request Cards List */}
-      <div className="space-y-4">
+      {/* Request Cards List (Responsive Grid on Tablet/Desktop) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {displayedRequests.length === 0 ? (
-          <div className="bg-white rounded-3xl p-8 border border-slate-100 text-center text-slate-400">
+          <div className="col-span-full bg-white rounded-3xl p-8 border border-slate-100 text-center text-slate-400">
             <Clock className="w-8 h-8 mx-auto mb-2 opacity-40" />
             <p className="text-xs">ไม่มีรายการคำร้องในหมวดนี้</p>
           </div>
@@ -243,7 +243,7 @@ export default function ApproverDashboard() {
             return (
               <div
                 key={r.id}
-                className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm space-y-4"
+                className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm space-y-4 flex flex-col justify-between"
               >
                 {/* Top Request Info */}
                 <div className="flex items-start justify-between">
