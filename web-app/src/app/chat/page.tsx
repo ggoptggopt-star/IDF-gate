@@ -188,13 +188,38 @@ function ChatContent() {
   const isApprover = (user?.role && user.role !== 'student' && user.role !== 'guard') || user?.role === 'admin';
   const userStep = getApproverStep(user?.role);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // Smart Auto-Scroll State & Refs (LINE / Telegram style)
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const isUserNearBottomRef = useRef(true);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
+  const prevMessagesCountRef = useRef(messages.length);
+
+  const handleScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const threshold = 120; // within 120px from bottom
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+    isUserNearBottomRef.current = nearBottom;
+    setShowScrollBottomBtn(!nearBottom);
   };
 
+  const scrollToBottom = (force = false, behavior: ScrollBehavior = 'smooth') => {
+    if (force || isUserNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior });
+      isUserNearBottomRef.current = true;
+      setShowScrollBottomBtn(false);
+    }
+  };
+
+  // Only auto-scroll when NEW message is added AND user is already near bottom
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isSubmitting, askAttachmentNow, missingSlots]);
+    if (messages.length > prevMessagesCountRef.current) {
+      if (isUserNearBottomRef.current) {
+        scrollToBottom(false);
+      }
+    }
+    prevMessagesCountRef.current = messages.length;
+  }, [messages.length]);
 
   // Load API key from localStorage
   useEffect(() => {
@@ -297,17 +322,25 @@ function ChatContent() {
 
             setPendingRequests(waitingForMe);
 
-            // If we are polling and messages are already rendered, just update request cards in-place
+            // If we are polling and messages are already rendered, update request cards in-place only if changed
             if (isPolling) {
-              setMessages((prev) =>
-                prev.map((m) => {
+              setMessages((prev) => {
+                const hasChange = prev.some((m) => {
+                  if (m.requestCard) {
+                    const fresh = allReqs.find((r) => r.id === m.requestCard!.id);
+                    return fresh && (fresh.overall_status !== m.requestCard.overall_status || fresh.current_step !== m.requestCard.current_step);
+                  }
+                  return false;
+                });
+                if (!hasChange) return prev;
+                return prev.map((m) => {
                   if (m.requestCard) {
                     const fresh = allReqs.find((r) => r.id === m.requestCard!.id);
                     if (fresh) return { ...m, requestCard: fresh };
                   }
                   return m;
-                })
-              );
+                });
+              });
               return;
             }
 
@@ -406,9 +439,17 @@ function ChatContent() {
             if (data.success && data.requests && data.requests.length > 0) {
               const fresh = data.requests[0];
               setLatestRequest(fresh);
-              setMessages((prev) =>
-                prev.map((m) => (m.requestCard && m.requestCard.id === fresh.id ? { ...m, requestCard: fresh } : m))
-              );
+              setMessages((prev) => {
+                const hasChange = prev.some(
+                  (m) =>
+                    m.requestCard &&
+                    m.requestCard.id === fresh.id &&
+                    (m.requestCard.overall_status !== fresh.overall_status ||
+                      m.requestCard.current_step !== fresh.current_step)
+                );
+                if (!hasChange) return prev;
+                return prev.map((m) => (m.requestCard && m.requestCard.id === fresh.id ? { ...m, requestCard: fresh } : m));
+              });
             }
             return;
           }
@@ -675,6 +716,10 @@ function ChatContent() {
     setInput('');
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+    // User explicitly sent message -> force scroll to bottom
+    isUserNearBottomRef.current = true;
+    setTimeout(() => scrollToBottom(true), 50);
+
     // 1. If user is an Approver and typed approval words ("อนุมัติ", "ผ่าน", "ไม่อนุมัติ")
     if (isApprover) {
       const isApproveCmd = /(อนุมัติ|อนุญาต|ผ่าน|ตกลง|ok|yes)/i.test(userText);
@@ -820,6 +865,7 @@ function ChatContent() {
     } finally {
       clearTimeout(timeoutId);
       setIsSubmitting(false);
+      setTimeout(() => scrollToBottom(false), 80);
     }
   };
 
@@ -1076,7 +1122,7 @@ function ChatContent() {
       )}
 
       {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
         <div className="w-full max-w-4xl mx-auto space-y-4">
         {messages.map((m, index) => {
           const prev = index > 0 ? messages[index - 1] : undefined;
@@ -1532,6 +1578,20 @@ function ChatContent() {
         accept="image/*"
         className="hidden"
       />
+
+      {/* Floating Jump-to-Bottom Button */}
+      {showScrollBottomBtn && (
+        <div className="sticky bottom-36 z-30 flex justify-center pointer-events-none mb-2">
+          <button
+            type="button"
+            onClick={() => scrollToBottom(true)}
+            className="pointer-events-auto bg-white/95 hover:bg-white text-[#0066CC] shadow-md border border-blue-200/80 rounded-full px-3.5 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 animate-bounce backdrop-blur cursor-pointer"
+            title="เลื่อนลงดูข้อความล่าสุด"
+          >
+            <span>↓ ข้อความล่าสุด</span>
+          </button>
+        </div>
+      )}
 
       {/* Bottom Input Field Bar */}
       <div className="p-3 bg-white border-t border-slate-200/80 sticky bottom-16 z-30">
