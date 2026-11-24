@@ -392,20 +392,6 @@ export default function NotificationManager() {
           <button onClick={() => setBannerDismissed(true)} className="text-slate-400 hover:text-white ml-2 p-1">✕</button>
         </div>
       )}
-
-      {/* 3. Small Floating Demo Test Notification Button (Bottom right above nav) */}
-      <div className="fixed bottom-20 right-4 z-40">
-        <button
-          onClick={handleTestNotification}
-          className="bg-slate-900/90 hover:bg-slate-800 text-blue-300 border border-blue-500/40 p-2.5 rounded-full shadow-lg backdrop-blur flex items-center justify-center gap-1 text-xs transition-all active:scale-95 group"
-          title="กดเพื่อทดสอบส่งการแจ้งเตือนบนมือถือ (เสียง + แถบ Notification)"
-        >
-          <BellRing className="w-4 h-4 text-amber-400 group-hover:rotate-12 transition-transform" />
-          <span className="text-[10px] font-medium pr-1 text-slate-200 hidden sm:inline">
-            ทดสอบแจ้งเตือน
-          </span>
-        </button>
-      </div>
     </>
   );
 }
