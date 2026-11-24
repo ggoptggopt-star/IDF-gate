@@ -227,12 +227,78 @@ function ChatContent() {
     if (savedKey) setGeminiApiKey(savedKey);
   }, []);
 
-  const currentUserId = user?.id || (isApprover ? 'user-teacher-demo' : isGuard ? 'user-guard-demo' : 'user-stu-akkaracha');
+  // Filter out any legacy mock messages, hardcoded dummy requests, or dumped cards
+  const cleanLegacyMsgs = (list: ChatMessage[]): ChatMessage[] => {
+    return list.filter((m) => {
+      if (!m || !m.id) return false;
+      const idStr = String(m.id);
+      if (idStr.startsWith('req-card-')) return false;
+      if (idStr.startsWith('msg-approver-')) return false;
+      if (idStr.startsWith('msg-guard-')) return false;
+      if (idStr === 'msg-1' || idStr === 'msg-2' || idStr === 'msg-checkin') return false;
+      if (idStr === 'welcome-greet' || idStr === 'welcome-options' || idStr === 'welcome-greet-fallback') return false;
+      if (idStr.startsWith('welcome-greet-') || idStr.startsWith('welcome-options-')) return false;
+      return true;
+    });
+  };
 
-  // Save chat messages and slots to localStorage when updated (All roles)
+  // Helper to ensure only 1 greeting per day exists in history
+  const deduplicateDailyGreetings = (list: ChatMessage[], todayStr: string): ChatMessage[] => {
+    const seenGreetingDates = new Set<string>();
+    const result: ChatMessage[] = [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const m = list[i];
+      if (typeof m.id === 'string' && m.id.startsWith('greet-')) {
+        const dKey = m.dateStr || todayStr;
+        if (seenGreetingDates.has(dKey)) {
+          continue;
+        }
+        seenGreetingDates.add(dKey);
+      }
+      result.unshift(m);
+    }
+    return result;
+  };
+
+  const currentUserId = user?.id || (isApprover ? 'user-teacher-demo' : isGuard ? 'user-guard-demo' : 'user-stu-akkaracha');
+  const messagesUserIdRef = useRef<string>(currentUserId);
+
+  // When switching user/role: immediately isolate state so messages don't cross-contaminate
+  useEffect(() => {
+    if (messagesUserIdRef.current !== currentUserId) {
+      messagesUserIdRef.current = currentUserId;
+      setMessages([]);
+    }
+  }, [currentUserId]);
+
+  // One-time client-side purge of legacy mock messages in browser's localStorage
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (messages.length > 0) {
+    try {
+      if (localStorage.getItem('sgp_chat_clean_v6') !== 'true') {
+        Object.keys(localStorage).forEach((key) => {
+          if (key.startsWith('sgp_chat_history_')) {
+            try {
+              const raw = localStorage.getItem(key);
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                  const cleaned = cleanLegacyMsgs(parsed);
+                  localStorage.setItem(key, JSON.stringify(cleaned));
+                }
+              }
+            } catch {}
+          }
+        });
+        localStorage.setItem('sgp_chat_clean_v6', 'true');
+      }
+    } catch {}
+  }, []);
+
+  // Save chat messages and slots to localStorage when updated (Only for current user's messages)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (messagesUserIdRef.current === currentUserId && messages.length > 0) {
       try {
         localStorage.setItem(`sgp_chat_history_${currentUserId}`, JSON.stringify(messages));
         localStorage.setItem(`sgp_chat_slots_${currentUserId}`, JSON.stringify(currentSlots));
@@ -310,6 +376,7 @@ function ChatContent() {
       const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const freshGreet = createDailyGreeting(user, user?.role, pendingRequests.length, nowTime, todayStr);
+      messagesUserIdRef.current = currentUserId;
       setMessages([freshGreet]);
     }
   };
@@ -363,13 +430,13 @@ function ChatContent() {
             if (savedHistoryStr) {
               try {
                 const parsed = JSON.parse(savedHistoryStr);
-                if (Array.isArray(parsed)) savedHistory = parsed;
+                if (Array.isArray(parsed)) savedHistory = cleanLegacyMsgs(parsed);
               } catch (e) {
                 console.warn('Failed to parse history:', e);
               }
             }
 
-            if (lastGreetDate !== todayStr) {
+            if (lastGreetDate !== todayStr || savedHistory.length === 0) {
               const dailyGreet = createDailyGreeting(user, user?.role, 0, nowTime, todayStr);
               savedHistory.push(dailyGreet);
               if (typeof window !== 'undefined') {
@@ -377,6 +444,8 @@ function ChatContent() {
               }
             }
 
+            savedHistory = deduplicateDailyGreetings(savedHistory, todayStr);
+            messagesUserIdRef.current = currentUserId;
             setMessages(savedHistory);
           }
           return;
@@ -426,13 +495,13 @@ function ChatContent() {
             if (savedHistoryStr) {
               try {
                 const parsed = JSON.parse(savedHistoryStr);
-                if (Array.isArray(parsed)) savedHistory = parsed;
+                if (Array.isArray(parsed)) savedHistory = cleanLegacyMsgs(parsed);
               } catch (e) {
                 console.warn('Failed to parse history:', e);
               }
             }
 
-            if (lastGreetDate !== todayStr) {
+            if (lastGreetDate !== todayStr || savedHistory.length === 0) {
               const dailyGreet = createDailyGreeting(user, user?.role, waitingForMe.length, nowTime, todayStr);
               savedHistory.push(dailyGreet);
               if (typeof window !== 'undefined') {
@@ -449,6 +518,8 @@ function ChatContent() {
               return m;
             });
 
+            savedHistory = deduplicateDailyGreetings(savedHistory, todayStr);
+            messagesUserIdRef.current = currentUserId;
             setMessages(savedHistory);
           }
           return;
@@ -491,7 +562,7 @@ function ChatContent() {
         if (savedHistoryStr) {
           try {
             const parsed = JSON.parse(savedHistoryStr);
-            if (Array.isArray(parsed)) savedHistory = parsed;
+            if (Array.isArray(parsed)) savedHistory = cleanLegacyMsgs(parsed);
           } catch (e) {
             console.warn('Failed to parse history:', e);
           }
@@ -501,7 +572,7 @@ function ChatContent() {
           try { setCurrentSlots(JSON.parse(savedSlotsStr)); } catch {}
         }
 
-        if (lastGreetDate !== todayStr) {
+        if (lastGreetDate !== todayStr || savedHistory.length === 0) {
           const dailyGreet = createDailyGreeting(user, user?.role, 0, nowTime, todayStr);
           savedHistory.push(dailyGreet);
           if (typeof window !== 'undefined') {
@@ -517,6 +588,8 @@ function ChatContent() {
           );
         }
 
+        savedHistory = deduplicateDailyGreetings(savedHistory, todayStr);
+        messagesUserIdRef.current = currentUserId;
         setMessages(savedHistory);
       } catch (err) {
         console.error(err);
@@ -524,6 +597,7 @@ function ChatContent() {
           const now = new Date();
           const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+          messagesUserIdRef.current = currentUserId;
           setMessages([createDailyGreeting(user, user?.role, 0, nowTime, todayStr)]);
         }
       }
