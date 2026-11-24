@@ -227,60 +227,102 @@ function ChatContent() {
     if (savedKey) setGeminiApiKey(savedKey);
   }, []);
 
-  // Save chat messages to localStorage when updated (Student only)
+  const currentUserId = user?.id || (isApprover ? 'user-teacher-demo' : isGuard ? 'user-guard-demo' : 'user-stu-akkaracha');
+
+  // Save chat messages and slots to localStorage when updated (All roles)
   useEffect(() => {
-    if (user?.role === 'student' && messages.length > 0) {
-      const studentId = user?.id || 'user-stu-akkaracha';
+    if (typeof window === 'undefined') return;
+    if (messages.length > 0) {
       try {
-        localStorage.setItem(`sgp_chat_history_${studentId}`, JSON.stringify(messages));
-        localStorage.setItem(`sgp_chat_slots_${studentId}`, JSON.stringify(currentSlots));
+        localStorage.setItem(`sgp_chat_history_${currentUserId}`, JSON.stringify(messages));
+        localStorage.setItem(`sgp_chat_slots_${currentUserId}`, JSON.stringify(currentSlots));
       } catch (e) {
         console.warn('Failed to save chat to localStorage:', e);
       }
     }
-  }, [messages, currentSlots, user]);
+  }, [messages, currentSlots, currentUserId]);
+
+  // Create clean daily greeting message based on role
+  const createDailyGreeting = (
+    targetUser: any,
+    targetRole: string | undefined,
+    pendingCount: number,
+    timeStr: string,
+    todayStr: string
+  ): ChatMessage => {
+    const isTargetGuard = targetRole === 'guard';
+    const isTargetApprover = (targetRole && targetRole !== 'student' && targetRole !== 'guard') || targetRole === 'admin';
+
+    if (isTargetApprover) {
+      let greetText = `สวัสดีครับ ${targetUser?.full_name || 'คุณครู'} (${getRoleTitle(targetRole)}) 👋`;
+      if (pendingCount > 0) {
+        greetText += `\n\nวันนี้มีคำร้องขออนุญาตออกนอกสถานศึกษาของนักศึกษารอดำเนินการในขั้นของท่าน (${pendingCount} รายการ) ครับ\nท่านสามารถพิมพ์ "อนุมัติ" หรือสอบถามระบบได้เลยครับ`;
+      } else {
+        greetText += `\n\nขณะนี้ไม่มีคำร้องค้างรอการพิจารณาครับ มีอะไรให้ผมช่วยประสานงาน พิมพ์แจ้งได้เลยครับ`;
+      }
+      return {
+        id: `greet-${Date.now()}`,
+        sender: 'bot',
+        text: greetText,
+        time: timeStr,
+        timestamp: Date.now(),
+        dateStr: todayStr,
+        poweredBy: 'Google Gemini AI',
+      };
+    }
+
+    if (isTargetGuard) {
+      return {
+        id: `greet-${Date.now()}`,
+        sender: 'bot',
+        text: `สวัสดีครับ ${targetUser?.full_name || 'เจ้าหน้าที่ รปภ.'} ประจำป้อมประตู 1 (วิทยาลัยการอาชีพองครักษ์) 👋\nระบบเชื่อมโยงข้อมูลคำร้องและกล้อง AI สแกนใบหน้าพร้อมทำงานครับ`,
+        time: timeStr,
+        timestamp: Date.now(),
+        dateStr: todayStr,
+        poweredBy: 'Google Gemini AI',
+      };
+    }
+
+    // Default / Student View
+    return {
+      id: `greet-${Date.now()}`,
+      sender: 'bot',
+      text: `สวัสดีครับ คุณ ${targetUser?.full_name || 'นักศึกษา'} 👋\nผมคือน้องเกต AI ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัยครับ วันนี้ต้องการยื่นคำร้องหรือสอบถามเรื่องใด แตะเลือกหัวข้อด้านล่าง หรือพิมพ์บอกผมได้เลยครับ 🏫`,
+      time: timeStr,
+      timestamp: Date.now(),
+      dateStr: todayStr,
+      poweredBy: 'Google Gemini AI',
+      quickPills: STANDARD_QUICK_PILLS,
+    };
+  };
 
   const handleResetChat = () => {
     if (confirm('คุณต้องการเริ่มการสนทนาใหม่และล้างประวัติแชทใช่หรือไม่?')) {
-      const studentId = user?.id || 'user-stu-akkaracha';
-      localStorage.removeItem(`sgp_chat_history_${studentId}`);
-      localStorage.removeItem(`sgp_chat_slots_${studentId}`);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(`sgp_chat_history_${currentUserId}`);
+        localStorage.removeItem(`sgp_chat_slots_${currentUserId}`);
+      }
       setCurrentSlots({});
       setMissingSlots([]);
       setAskAttachmentNow(false);
       setSelectedAttachmentUrl(null);
-      const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      setMessages([
-        {
-          id: `welcome-greet-${Date.now()}`,
-          sender: 'bot',
-          text: `สวัสดีครับ คุณ ${user?.full_name || 'นักศึกษา'} 👋`,
-          time: nowTime,
-          timestamp: Date.now(),
-          dateStr: new Date().toISOString().split('T')[0],
-          poweredBy: 'Google Gemini AI',
-        },
-        {
-          id: `welcome-options-${Date.now() + 1}`,
-          sender: 'bot',
-          text: 'ผมคือ "น้องเกต AI" ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัยครับ ต้องการยื่นคำร้องหรือสอบถามเรื่องใด แตะเลือกหัวข้อด้านล่าง หรือพิมพ์บอกผมได้เลยครับ 🏫',
-          time: nowTime,
-          timestamp: Date.now() + 1,
-          dateStr: new Date().toISOString().split('T')[0],
-          poweredBy: 'Google Gemini AI',
-          quickPills: STANDARD_QUICK_PILLS,
-        },
-      ]);
+      const now = new Date();
+      const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const freshGreet = createDailyGreeting(user, user?.role, pendingRequests.length, nowTime, todayStr);
+      setMessages([freshGreet]);
     }
   };
 
-  // Fetch requests based on role (Student vs Approver vs Guard) with live polling
+  // Fetch requests based on role with live polling & persistent clean chat history
   useEffect(() => {
     let isCancelled = false;
 
     async function loadRequests(isPolling = false) {
       try {
-        const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const now = new Date();
+        const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
         if (isGuard) {
           // Guard View
@@ -290,39 +332,8 @@ function ChatContent() {
             const allReqs: LeaveRequest[] = data.requests;
             const approvedReqs = allReqs.filter((r) => r.overall_status === 'approved' || r.synced_to_gate === 1);
             const latest = approvedReqs[0] || allReqs[0];
+            if (latest) setLatestRequest(latest);
 
-            if (latest && !isPolling) {
-              setMessages([
-                {
-                  id: 'msg-guard-welcome',
-                  sender: 'bot',
-                  text: `สวัสดีครับ ${user?.full_name || 'เจ้าหน้าที่ รปภ.'} ประจำป้อมประตู 1 (วิทยาลัยการอาชีพองครักษ์)\n\nระบบ Smart Gate Pass AI เชื่อมโยงบัญชีรายชื่อที่ได้รับอนุมัติเรียบร้อยแล้ว ${approvedReqs.length} รายการครับ\nเมื่อนักศึกษามาถึงหน้ากล้อง AI จะสแกนใบหน้าและส่งสัญญาณเปิดไม้กั้นอัตโนมัติทันทีครับ`,
-                  time: nowTime,
-                  poweredBy: 'Google Gemini AI',
-                  requestCard: latest,
-                },
-              ]);
-            }
-          }
-          return;
-        }
-
-        if (isApprover) {
-          // Approver view: fetch all requests waiting for this teacher's step
-          const res = await fetch('/api/requests');
-          const data = await res.json();
-
-          if (data.success && data.requests && !isCancelled) {
-            const allReqs: LeaveRequest[] = data.requests;
-            const waitingForMe = allReqs.filter((r) => {
-              if (r.overall_status !== 'pending') return false;
-              if (user?.role === 'admin') return true;
-              return r.current_step === userStep;
-            });
-
-            setPendingRequests(waitingForMe);
-
-            // If we are polling and messages are already rendered, update request cards in-place only if changed
             if (isPolling) {
               setMessages((prev) => {
                 const hasChange = prev.some((m) => {
@@ -344,218 +355,176 @@ function ChatContent() {
               return;
             }
 
-            const initialMsgs: ChatMessage[] = [];
+            // Initial load for Guard: Load history + check daily greeting
+            let savedHistory: ChatMessage[] = [];
+            const savedHistoryStr = typeof window !== 'undefined' ? localStorage.getItem(`sgp_chat_history_${currentUserId}`) : null;
+            const lastGreetDate = typeof window !== 'undefined' ? localStorage.getItem(`sgp_last_greet_date_${currentUserId}`) : null;
 
-            if (waitingForMe.length > 0) {
-              initialMsgs.push({
-                id: 'msg-approver-welcome',
-                sender: 'bot',
-                text: `สวัสดีครับ ${user?.full_name || 'คุณครู'} (${getRoleTitle(user?.role)})!\n\nระบบ Smart Gate AI มีคำร้องขออนุญาตออกนอกสถานศึกษาของนักศึกษารอดำเนินการในขั้นของท่าน (${waitingForMe.length} รายการ) ครับ:\nท่านสามารถกดปุ่ม [✓ ${userStep === 5 ? 'อนุมัติขั้นสุดท้าย' : 'อนุมัติส่งต่อ'}] บนการ์ดด้านล่าง หรือพิมพ์คำว่า "อนุมัติ" ในแชทได้ทันทีครับ`,
-                time: nowTime,
-                poweredBy: 'Google Gemini AI',
-              });
-
-              waitingForMe.forEach((req) => {
-                initialMsgs.push({
-                  id: `req-card-${req.id}`,
-                  sender: 'bot',
-                  time: req.allowed_start_time || nowTime,
-                  requestCard: req,
-                });
-              });
-            } else {
-              // No request at my exact step, but show latest pending request so teacher can review/test
-              const latestPending = allReqs.find((r) => r.overall_status === 'pending') || allReqs[0];
-
-              if (latestPending) {
-                const isFinalApproved = latestPending.overall_status === 'approved';
-                const statusNotice = isFinalApproved
-                  ? `คำร้อง #${latestPending.request_code} ของ ${latestPending.student_name} ได้รับการอนุมัติครบทั้ง 5 ขั้นตอนแล้ว (พร้อมสแกนใบหน้าเปิดไม้กั้น)`
-                  : `ขณะนี้คำร้อง #${latestPending.request_code} ของ ${latestPending.student_name} อยู่ใน [ขั้นที่ ${latestPending.current_step}/5: ${getRoleTitleForStep(latestPending.current_step)}]`;
-
-                initialMsgs.push({
-                  id: 'msg-approver-info',
-                  sender: 'bot',
-                  text: `สวัสดีครับ ${user?.full_name || 'คุณครู'} (${getRoleTitle(user?.role)})!\n\n${statusNotice}\nท่านสามารถตรวจดูข้อมูลและกดอนุมัติได้ที่การ์ดคำร้องด้านล่างครับ:`,
-                  time: nowTime,
-                  poweredBy: 'Google Gemini AI',
-                });
-
-                initialMsgs.push({
-                  id: `req-card-${latestPending.id}`,
-                  sender: 'bot',
-                  time: latestPending.allowed_start_time || nowTime,
-                  requestCard: latestPending,
-                });
-              } else {
-                initialMsgs.push({
-                  id: 'msg-approver-empty',
-                  sender: 'bot',
-                  text: `สวัสดีครับ ${user?.full_name || 'คุณครู'} (${getRoleTitle(user?.role)})!\n\nขณะนี้ไม่มีคำร้องใหม่ที่ค้างรอการพิจารณาครับ ระบบจะส่งข้อความแจ้งเตือนทันทีเมื่อมีคำร้องยื่นเข้ามาครับ`,
-                  time: nowTime,
-                  poweredBy: 'Google Gemini AI',
-                });
+            if (savedHistoryStr) {
+              try {
+                const parsed = JSON.parse(savedHistoryStr);
+                if (Array.isArray(parsed)) savedHistory = parsed;
+              } catch (e) {
+                console.warn('Failed to parse history:', e);
               }
             }
 
-            setMessages(initialMsgs);
-          }
-        } else {
-          // Student view (or not logged in -> default to demo student)
-          const studentId = user?.id || 'user-stu-akkaracha';
-
-          // Check if there is saved chat history in localStorage!
-          const savedHistoryStr = typeof window !== 'undefined' ? localStorage.getItem(`sgp_chat_history_${studentId}`) : null;
-          const savedSlotsStr = typeof window !== 'undefined' ? localStorage.getItem(`sgp_chat_slots_${studentId}`) : null;
-
-          if (savedHistoryStr && !isPolling) {
-            try {
-              const parsed = JSON.parse(savedHistoryStr);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setMessages(parsed);
-                if (savedSlotsStr) {
-                  try { setCurrentSlots(JSON.parse(savedSlotsStr)); } catch {}
-                }
-                const res = await fetch(`/api/requests?student_id=${studentId}`);
-                const data = await res.json();
-                if (data.success && data.requests && data.requests.length > 0) {
-                  const fresh = data.requests[0];
-                  setLatestRequest(fresh);
-                  setMessages((prev) =>
-                    prev.map((m) => (m.requestCard && m.requestCard.id === fresh.id ? { ...m, requestCard: fresh } : m))
-                  );
-                }
-                return;
+            if (lastGreetDate !== todayStr) {
+              const dailyGreet = createDailyGreeting(user, user?.role, 0, nowTime, todayStr);
+              savedHistory.push(dailyGreet);
+              if (typeof window !== 'undefined') {
+                localStorage.setItem(`sgp_last_greet_date_${currentUserId}`, todayStr);
               }
-            } catch (err) {
-              console.error('Failed to parse saved chat history:', err);
             }
-          }
 
-          const res = await fetch(`/api/requests?student_id=${studentId}`);
+            setMessages(savedHistory);
+          }
+          return;
+        }
+
+        if (isApprover) {
+          // Approver view: fetch all requests waiting for this teacher's step
+          const res = await fetch('/api/requests');
           const data = await res.json();
 
-          if (isPolling) {
-            if (data.success && data.requests && data.requests.length > 0) {
-              const fresh = data.requests[0];
-              setLatestRequest(fresh);
+          if (data.success && data.requests && !isCancelled) {
+            const allReqs: LeaveRequest[] = data.requests;
+            const waitingForMe = allReqs.filter((r) => {
+              if (r.overall_status !== 'pending') return false;
+              if (user?.role === 'admin') return true;
+              return r.current_step === userStep;
+            });
+
+            setPendingRequests(waitingForMe);
+
+            if (isPolling) {
               setMessages((prev) => {
-                const hasChange = prev.some(
-                  (m) =>
-                    m.requestCard &&
-                    m.requestCard.id === fresh.id &&
-                    (m.requestCard.overall_status !== fresh.overall_status ||
-                      m.requestCard.current_step !== fresh.current_step)
-                );
+                const hasChange = prev.some((m) => {
+                  if (m.requestCard) {
+                    const fresh = allReqs.find((r) => r.id === m.requestCard!.id);
+                    return fresh && (fresh.overall_status !== m.requestCard.overall_status || fresh.current_step !== m.requestCard.current_step);
+                  }
+                  return false;
+                });
                 if (!hasChange) return prev;
-                return prev.map((m) => (m.requestCard && m.requestCard.id === fresh.id ? { ...m, requestCard: fresh } : m));
+                return prev.map((m) => {
+                  if (m.requestCard) {
+                    const fresh = allReqs.find((r) => r.id === m.requestCard!.id);
+                    if (fresh) return { ...m, requestCard: fresh };
+                  }
+                  return m;
+                });
               });
+              return;
             }
-            return;
+
+            // Initial load for Approver: Clean screen, no dumped cards, check daily greeting
+            let savedHistory: ChatMessage[] = [];
+            const savedHistoryStr = typeof window !== 'undefined' ? localStorage.getItem(`sgp_chat_history_${currentUserId}`) : null;
+            const lastGreetDate = typeof window !== 'undefined' ? localStorage.getItem(`sgp_last_greet_date_${currentUserId}`) : null;
+
+            if (savedHistoryStr) {
+              try {
+                const parsed = JSON.parse(savedHistoryStr);
+                if (Array.isArray(parsed)) savedHistory = parsed;
+              } catch (e) {
+                console.warn('Failed to parse history:', e);
+              }
+            }
+
+            if (lastGreetDate !== todayStr) {
+              const dailyGreet = createDailyGreeting(user, user?.role, waitingForMe.length, nowTime, todayStr);
+              savedHistory.push(dailyGreet);
+              if (typeof window !== 'undefined') {
+                localStorage.setItem(`sgp_last_greet_date_${currentUserId}`, todayStr);
+              }
+            }
+
+            // Sync any existing requestCard in saved messages
+            savedHistory = savedHistory.map((m) => {
+              if (m.requestCard) {
+                const fresh = allReqs.find((r) => r.id === m.requestCard!.id);
+                if (fresh) return { ...m, requestCard: fresh };
+              }
+              return m;
+            });
+
+            setMessages(savedHistory);
           }
+          return;
+        }
 
-          if (data.success && data.requests && data.requests.length > 0 && !isCancelled) {
-            const req: LeaveRequest = data.requests[0];
-            setLatestRequest(req);
+        // Student view
+        const studentId = user?.id || 'user-stu-akkaracha';
+        const res = await fetch(`/api/requests?student_id=${studentId}`);
+        const data = await res.json();
 
-            const initialMsgs: ChatMessage[] = [
-              {
-                id: 'welcome-greet',
-                sender: 'bot',
-                text: `สวัสดีครับ คุณ ${user?.full_name || 'นักศึกษา'} 👋`,
-                time: req.allowed_start_time || '12:20',
-                poweredBy: 'Google Gemini AI',
-              },
-              {
-                id: 'welcome-options',
-                sender: 'bot',
-                text: 'ผมคือ "น้องเกต AI" ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัยครับ ต้องการยื่นคำร้องหรือสอบถามเรื่องใด แตะเลือกหัวข้อด้านล่าง หรือพิมพ์บอกผมได้เลยครับ 🏫',
-                time: req.allowed_start_time || '12:20',
-                poweredBy: 'Google Gemini AI',
-                quickPills: STANDARD_QUICK_PILLS,
-              },
-              {
-                id: 'msg-1',
-                sender: 'student',
-                text: `${req.reason} (สถานที่: ${req.destination_name || 'นอกวิทยาลัย'}) วันที่ ${req.leave_date} เวลา ${req.allowed_start_time} - ${req.allowed_end_time} น. ครับ`,
-                time: req.allowed_start_time || '12:25',
-                attachmentUrl: req.attachment_path || undefined,
-              },
-              {
-                id: 'msg-2',
-                sender: 'bot',
-                text: `รับเรื่องเรียบร้อยครับ! ระบบได้ผูกตารางสอนวิชา '${req.course_name || 'การวิเคราะห์ข้อมูล'}' พร้อมสร้างคำร้อง #${req.request_code} และส่งต่อให้ผู้อนุมัติทั้ง 5 ขั้นตอนแล้วครับ`,
-                time: nowTime,
-                poweredBy: 'Google Gemini AI',
-                requestCard: req,
-              },
-            ];
+        if (data.success && data.requests && data.requests.length > 0) {
+          const fresh = data.requests[0];
+          setLatestRequest(fresh);
+        }
 
-            if (req.checkin_verified) {
-              initialMsgs.push({
-                id: 'msg-checkin',
-                sender: 'bot',
-                time: req.checkin_at || nowTime,
-                checkinCard: {
-                  destination: req.destination_name || 'โรงพยาบาลองครักษ์',
-                  distance_m: req.checkin_distance_m || 28.4,
-                  verified: true,
-                  time: req.checkin_at || nowTime,
-                  maps_url: `https://www.google.com/maps?q=${req.checkin_lat || 14.1348},${req.checkin_lng || 100.9922}`,
-                },
-              });
-            }
+        if (isPolling) {
+          if (data.success && data.requests && data.requests.length > 0) {
+            const fresh = data.requests[0];
+            setMessages((prev) => {
+              const hasChange = prev.some(
+                (m) =>
+                  m.requestCard &&
+                  m.requestCard.id === fresh.id &&
+                  (m.requestCard.overall_status !== fresh.overall_status ||
+                    m.requestCard.current_step !== fresh.current_step)
+              );
+              if (!hasChange) return prev;
+              return prev.map((m) => (m.requestCard && m.requestCard.id === fresh.id ? { ...m, requestCard: fresh } : m));
+            });
+          }
+          return;
+        }
 
-            setMessages(initialMsgs);
-          } else if (!isCancelled) {
-            setMessages([
-              {
-                id: 'welcome-greet',
-                sender: 'bot',
-                text: `สวัสดีครับ คุณ ${user?.full_name || 'นักศึกษา'} 👋`,
-                time: nowTime,
-                timestamp: Date.now(),
-                dateStr: new Date().toISOString().split('T')[0],
-                poweredBy: 'Google Gemini AI',
-              },
-              {
-                id: 'welcome-options',
-                sender: 'bot',
-                text: 'ผมคือ "น้องเกต AI" ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัยครับ ต้องการยื่นคำร้องหรือสอบถามเรื่องใด แตะเลือกหัวข้อด้านล่าง หรือพิมพ์บอกผมได้เลยครับ 🏫',
-                time: nowTime,
-                timestamp: Date.now() + 1,
-                dateStr: new Date().toISOString().split('T')[0],
-                poweredBy: 'Google Gemini AI',
-                quickPills: STANDARD_QUICK_PILLS,
-              },
-            ]);
+        // Initial load for Student: Clean screen, no mock fake data, check daily greeting
+        let savedHistory: ChatMessage[] = [];
+        const savedHistoryStr = typeof window !== 'undefined' ? localStorage.getItem(`sgp_chat_history_${currentUserId}`) : null;
+        const savedSlotsStr = typeof window !== 'undefined' ? localStorage.getItem(`sgp_chat_slots_${currentUserId}`) : null;
+        const lastGreetDate = typeof window !== 'undefined' ? localStorage.getItem(`sgp_last_greet_date_${currentUserId}`) : null;
+
+        if (savedHistoryStr) {
+          try {
+            const parsed = JSON.parse(savedHistoryStr);
+            if (Array.isArray(parsed)) savedHistory = parsed;
+          } catch (e) {
+            console.warn('Failed to parse history:', e);
           }
         }
+
+        if (savedSlotsStr) {
+          try { setCurrentSlots(JSON.parse(savedSlotsStr)); } catch {}
+        }
+
+        if (lastGreetDate !== todayStr) {
+          const dailyGreet = createDailyGreeting(user, user?.role, 0, nowTime, todayStr);
+          savedHistory.push(dailyGreet);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(`sgp_last_greet_date_${currentUserId}`, todayStr);
+          }
+        }
+
+        // If there's request card in saved history, sync with latest request
+        if (data.success && data.requests && data.requests.length > 0) {
+          const fresh = data.requests[0];
+          savedHistory = savedHistory.map((m) =>
+            m.requestCard && m.requestCard.id === fresh.id ? { ...m, requestCard: fresh } : m
+          );
+        }
+
+        setMessages(savedHistory);
       } catch (err) {
         console.error(err);
         if (!isPolling && !isCancelled) {
-          const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          setMessages([
-            {
-              id: 'welcome-greet-fallback',
-              sender: 'bot',
-              text: `สวัสดีครับ คุณ ${user?.full_name || 'นักศึกษา'} 👋`,
-              time: nowTime,
-              timestamp: Date.now(),
-              dateStr: new Date().toISOString().split('T')[0],
-              poweredBy: 'Google Gemini AI',
-            },
-            {
-              id: 'welcome-options-fallback',
-              sender: 'bot',
-              text: 'ผมคือ "น้องเกต AI" ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัยครับ ต้องการยื่นคำร้องหรือสอบถามเรื่องใด แตะเลือกหัวข้อด้านล่าง หรือพิมพ์บอกผมได้เลยครับ 🏫',
-              time: nowTime,
-              timestamp: Date.now() + 1,
-              dateStr: new Date().toISOString().split('T')[0],
-              poweredBy: 'Google Gemini AI',
-              quickPills: STANDARD_QUICK_PILLS,
-            },
-          ]);
+          const now = new Date();
+          const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+          setMessages([createDailyGreeting(user, user?.role, 0, nowTime, todayStr)]);
         }
       }
     }
@@ -569,7 +538,7 @@ function ChatContent() {
       isCancelled = true;
       clearInterval(interval);
     };
-  }, [user?.id, user?.role, isApprover, isGuard, userStep]);
+  }, [user?.id, user?.role, isApprover, isGuard, userStep, currentUserId]);
 
   // Handle Teacher Direct Approval Action in Chat
   const handleTeacherAction = async (requestId: string, action: 'approve' | 'reject') => {
