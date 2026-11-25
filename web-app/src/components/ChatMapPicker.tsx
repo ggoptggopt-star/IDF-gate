@@ -25,6 +25,7 @@ import {
   searchVerifiedLocations,
   calcDistanceKm,
   OICEC_COLLEGE,
+  ONGKHARAK_SUBDISTRICTS,
 } from '@/lib/ongkharakLocations';
 
 export interface LocationTimeResult {
@@ -71,8 +72,9 @@ export default function ChatMapPicker({
   const [endTime, setEndTime] = useState(initialEndTime);
   const [selectedSlotPreset, setSelectedSlotPreset] = useState<string>('🍱 พักเที่ยง');
 
-  // Category filter tab
-  const [activeCategory, setActiveCategory] = useState<'all' | 'hospital' | 'convenience' | 'market' | 'home'>('all');
+  // Category and Subdistrict filters
+  const [activeCategory, setActiveCategory] = useState<'all' | 'hospital' | 'convenience' | 'market' | 'home' | 'temple' | 'school' | 'gov'>('all');
+  const [selectedSubdistrict, setSelectedSubdistrict] = useState<string>('all');
 
   // Map layer: 'satellite' (Google Maps Hybrid) vs 'roadmap' (Google Maps Roads)
   const [mapLayer, setMapLayer] = useState<'satellite' | 'roadmap'>('satellite');
@@ -332,13 +334,19 @@ export default function ChatMapPicker({
 
   const distance = calcDistanceKm(OICEC_COLLEGE.lat, OICEC_COLLEGE.lng, selectedLat, selectedLng);
 
-  // Filtered preset list by category
+  // Filtered preset list by category and subdistrict
   const displayedPresets = VERIFIED_LOCATIONS.filter((loc) => {
+    if (selectedSubdistrict !== 'all' && loc.subdistrict !== selectedSubdistrict) {
+      return false;
+    }
     if (activeCategory === 'all') return true;
     if (activeCategory === 'hospital') return loc.category === 'hospital';
     if (activeCategory === 'convenience') return loc.category === 'convenience';
     if (activeCategory === 'market') return loc.category === 'market';
     if (activeCategory === 'home') return loc.category === 'home';
+    if (activeCategory === 'temple') return loc.category === 'temple';
+    if (activeCategory === 'school') return loc.category === 'school';
+    if (activeCategory === 'gov') return loc.category === 'gov';
     return true;
   });
 
@@ -479,8 +487,25 @@ export default function ChatMapPicker({
         )}
       </div>
 
-      {/* Category Tabs for Fast Presets */}
-      <div className="space-y-1.5">
+      {/* Category Tabs & 11 Sub-districts of Ongkharak */}
+      <div className="space-y-1.5 bg-slate-50/70 p-2 rounded-xl border border-slate-200">
+        <div className="flex items-center justify-between gap-1 text-[10px]">
+          <span className="font-bold text-slate-700 shrink-0">📍 ตำบลใน อ.องครักษ์:</span>
+          <select
+            value={selectedSubdistrict}
+            onChange={(e) => setSelectedSubdistrict(e.target.value)}
+            className="px-2 py-0.5 rounded-lg border border-slate-300 bg-white text-[10px] text-blue-900 font-semibold focus:outline-none focus:border-blue-500 max-w-[200px]"
+          >
+            <option value="all">ทุกตำบล (ครบ 11 ตำบล)</option>
+            {ONGKHARAK_SUBDISTRICTS.map((sub, i) => (
+              <option key={i} value={sub}>
+                {sub}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Category Pills */}
         <div className="flex items-center gap-1 overflow-x-auto pb-0.5 no-scrollbar text-[10px]">
           <button
             type="button"
@@ -488,10 +513,10 @@ export default function ChatMapPicker({
             className={`px-2 py-0.5 rounded-lg font-medium whitespace-nowrap transition-all ${
               activeCategory === 'all'
                 ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
             }`}
           >
-            ทั้งหมด
+            ทั้งหมด ({displayedPresets.length})
           </button>
           <button
             type="button"
@@ -499,10 +524,10 @@ export default function ChatMapPicker({
             className={`px-2 py-0.5 rounded-lg font-medium whitespace-nowrap transition-all ${
               activeCategory === 'hospital'
                 ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
             }`}
           >
-            🏥 รพ./คลินิก
+            🏥 รพ./อนามัย
           </button>
           <button
             type="button"
@@ -510,7 +535,7 @@ export default function ChatMapPicker({
             className={`px-2 py-0.5 rounded-lg font-medium whitespace-nowrap transition-all ${
               activeCategory === 'convenience'
                 ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
             }`}
           >
             🏪 เซเว่น/ร้านค้า
@@ -521,10 +546,43 @@ export default function ChatMapPicker({
             className={`px-2 py-0.5 rounded-lg font-medium whitespace-nowrap transition-all ${
               activeCategory === 'market'
                 ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
             }`}
           >
             🛒 ตลาด/โลตัส
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveCategory('temple')}
+            className={`px-2 py-0.5 rounded-lg font-medium whitespace-nowrap transition-all ${
+              activeCategory === 'temple'
+                ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+            }`}
+          >
+            🛕 วัด
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveCategory('school')}
+            className={`px-2 py-0.5 rounded-lg font-medium whitespace-nowrap transition-all ${
+              activeCategory === 'school'
+                ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+            }`}
+          >
+            🎒 โรงเรียน/มศว
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveCategory('gov')}
+            className={`px-2 py-0.5 rounded-lg font-medium whitespace-nowrap transition-all ${
+              activeCategory === 'gov'
+                ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+            }`}
+          >
+            🏛️ อบต./อำเภอ
           </button>
           <button
             type="button"
@@ -532,7 +590,7 @@ export default function ChatMapPicker({
             className={`px-2 py-0.5 rounded-lg font-medium whitespace-nowrap transition-all ${
               activeCategory === 'home'
                 ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
             }`}
           >
             🏠 หอพัก/บ้าน
@@ -540,7 +598,7 @@ export default function ChatMapPicker({
         </div>
 
         {/* Preset Chips */}
-        <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-0.5">
+        <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-0.5 pt-1">
           <button
             type="button"
             onClick={handleGetCurrentLocation}
@@ -551,7 +609,7 @@ export default function ChatMapPicker({
             <span>GPS ปัจจุบัน</span>
           </button>
 
-          {displayedPresets.slice(0, 8).map((preset) => (
+          {displayedPresets.slice(0, 10).map((preset) => (
             <button
               key={preset.id}
               type="button"
@@ -559,7 +617,7 @@ export default function ChatMapPicker({
               className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-all flex items-center gap-1 border ${
                 locationName === preset.name
                   ? 'bg-blue-100 text-blue-900 border-blue-400 font-bold shadow-xs'
-                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                  : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
               }`}
             >
               <span>{preset.icon}</span>

@@ -132,11 +132,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 4. OpenStreetMap Nominatim with strict Nakhon Nayok / Ongkharak viewbox bounding
+    // 4. OpenStreetMap Nominatim with strict Amphoe Ongkharak bounding
     try {
       const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-        query + ' นครนายก'
-      )}&countrycodes=th&viewbox=100.80,14.30,101.30,13.90&bounded=0&limit=5`;
+        query + ' องครักษ์ นครนายก'
+      )}&countrycodes=th&viewbox=100.85,14.28,101.18,14.00&bounded=0&limit=5`;
 
       const nomRes = await fetch(nomUrl, {
         headers: { 'Accept-Language': 'th,en', 'User-Agent': 'SmartGatePass/1.0' },
