@@ -1,24 +1,26 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Navigation, Home, CheckCircle2, Crosshair, AlertCircle } from 'lucide-react';
+import { MapPin, Home, CheckCircle2, Crosshair, X, Building2, Store } from 'lucide-react';
 
 interface ChatMapPickerProps {
   onSelect: (location: { name: string; lat: number; lng: number; isReturnRequired: number }) => void;
+  onCancel?: () => void;
   initialLat?: number;
   initialLng?: number;
+  initialName?: string;
 }
 
 // College coordinates: OICEC (วิทยาลัยการอาชีพองครักษ์)
 const OICEC_LAT = 14.1285;
 const OICEC_LNG = 100.9985;
 
-// Common presets around Ongkharak for quick selection
-const HOME_PRESETS = [
-  { name: 'บ้านพัก (คลอง 15 ไม้ดอกไม้ประดับ)', lat: 14.1120, lng: 100.9450 },
-  { name: 'บ้านพัก (ตลาดองครักษ์)', lat: 14.1205, lng: 101.0020 },
-  { name: 'บ้านพัก (บางอ้อ / องครักษ์)', lat: 14.1450, lng: 101.0250 },
-  { name: 'บ้านพัก (คลอง 16 นครนายก)', lat: 14.1350, lng: 100.9200 },
+// Popular destinations around Ongkharak
+const DESTINATION_PRESETS = [
+  { name: 'โรงพยาบาลองครักษ์', lat: 14.1205, lng: 101.0020, icon: '🏥', isReturn: 1 },
+  { name: 'ตลาดองครักษ์', lat: 14.1220, lng: 101.0050, icon: '🛍️', isReturn: 1 },
+  { name: 'บ้านพัก (คลอง 15)', lat: 14.1120, lng: 100.9450, icon: '🏠', isReturn: 0 },
+  { name: 'บ้านพัก (คลอง 16)', lat: 14.1350, lng: 100.9200, icon: '🏠', isReturn: 0 },
 ];
 
 function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -32,13 +34,19 @@ function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: num
   return Math.round(R * c * 10) / 10;
 }
 
-export default function ChatMapPicker({ onSelect, initialLat, initialLng }: ChatMapPickerProps) {
-  const [selectedLat, setSelectedLat] = useState(initialLat || 14.1120);
-  const [selectedLng, setSelectedLng] = useState(initialLng || 100.9450);
-  const [locationName, setLocationName] = useState('บ้านพักอาศัย');
+export default function ChatMapPicker({
+  onSelect,
+  onCancel,
+  initialLat,
+  initialLng,
+  initialName = 'สถานที่ปลายทาง',
+}: ChatMapPickerProps) {
+  const [selectedLat, setSelectedLat] = useState(initialLat || 14.1205);
+  const [selectedLng, setSelectedLng] = useState(initialLng || 101.0020);
+  const [locationName, setLocationName] = useState(initialName);
+  const [isReturn, setIsReturn] = useState(initialName.includes('บ้าน') ? 0 : 1);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const [mapLoaded, setMapLoaded] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -75,9 +83,9 @@ export default function ChatMapPicker({ onSelect, initialLat, initialLng }: Chat
         maxZoom: 18,
       }).addTo(map);
 
-      // Custom Home Icon
-      const homeIcon = L.divIcon({
-        className: 'custom-home-pin',
+      // Custom Pin Icon
+      const pinIcon = L.divIcon({
+        className: 'custom-dest-pin',
         html: `
           <div style="
             background: #ef4444;
@@ -92,7 +100,7 @@ export default function ChatMapPicker({ onSelect, initialLat, initialLng }: Chat
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
             border: 2px solid white;
           ">
-            <span style="transform: rotate(45deg); font-size: 16px;">🏠</span>
+            <span style="transform: rotate(45deg); font-size: 16px;">📍</span>
           </div>
         `,
         iconSize: [34, 34],
@@ -100,7 +108,7 @@ export default function ChatMapPicker({ onSelect, initialLat, initialLng }: Chat
       });
 
       const marker = L.marker([selectedLat, selectedLng], {
-        icon: homeIcon,
+        icon: pinIcon,
         draggable: true,
       }).addTo(map);
 
@@ -108,19 +116,16 @@ export default function ChatMapPicker({ onSelect, initialLat, initialLng }: Chat
         const pos = marker.getLatLng();
         setSelectedLat(pos.lat);
         setSelectedLng(pos.lng);
-        setLocationName('บ้านพักอาศัย (หมุดที่เลือก)');
       });
 
       map.on('click', (e: any) => {
         marker.setLatLng(e.latlng);
         setSelectedLat(e.latlng.lat);
         setSelectedLng(e.latlng.lng);
-        setLocationName('บ้านพักอาศัย (หมุดที่เลือก)');
       });
 
       mapInstanceRef.current = map;
       markerRef.current = marker;
-      setMapLoaded(true);
     }
 
     initLeaflet();
@@ -134,10 +139,11 @@ export default function ChatMapPicker({ onSelect, initialLat, initialLng }: Chat
     };
   }, []);
 
-  const updatePin = (lat: number, lng: number, name: string) => {
+  const updatePin = (lat: number, lng: number, name: string, returnReq: number) => {
     setSelectedLat(lat);
     setSelectedLng(lng);
     setLocationName(name);
+    setIsReturn(returnReq);
 
     if (mapInstanceRef.current && markerRef.current) {
       markerRef.current.setLatLng([lat, lng]);
@@ -155,7 +161,7 @@ export default function ChatMapPicker({ onSelect, initialLat, initialLng }: Chat
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setGpsLoading(false);
-        updatePin(pos.coords.latitude, pos.coords.longitude, 'บ้านพักอาศัย (พิกัด GPS ปัจจุบัน)');
+        updatePin(pos.coords.latitude, pos.coords.longitude, 'พิกัด GPS ปัจจุบัน', 0);
       },
       (err) => {
         setGpsLoading(false);
@@ -174,7 +180,7 @@ export default function ChatMapPicker({ onSelect, initialLat, initialLng }: Chat
       name: locationName,
       lat: Number(selectedLat.toFixed(5)),
       lng: Number(selectedLng.toFixed(5)),
-      isReturnRequired: 0, // กลับบ้าน ไม่ต้องกลับเข้าวิทยาลัย
+      isReturnRequired: isReturn,
     });
   };
 
@@ -185,9 +191,9 @@ export default function ChatMapPicker({ onSelect, initialLat, initialLng }: Chat
           <CheckCircle2 className="w-5 h-5" />
         </div>
         <div>
-          <p className="font-semibold text-emerald-950">บันทึกพิกัดบ้านเรียบร้อยแล้ว ✓</p>
+          <p className="font-semibold text-emerald-950">บันทึกพิกัดสถานที่เรียบร้อยแล้ว ✓</p>
           <p className="text-[11px] text-emerald-700">
-            {locationName} (ระยะห่างจาก วก.องครักษ์ {distance} กม.) — กรณีกลับบ้านไม่จำเป็นต้องเดินทางกลับเข้ามา
+            {locationName} (ระยะห่างจาก วก.องครักษ์ {distance} กม.) • {isReturn === 0 ? 'กรณีไม่กลับเข้าวิทยาลัย' : 'กรณีต้องกลับเข้าวิทยาลัย'}
           </p>
         </div>
       </div>
@@ -198,16 +204,28 @@ export default function ChatMapPicker({ onSelect, initialLat, initialLng }: Chat
     <div className="bg-white border border-blue-200/80 rounded-2xl p-3 my-2 shadow-md text-xs text-slate-800 space-y-2.5">
       <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
         <div className="flex items-center gap-1.5 font-bold text-blue-900">
-          <Home className="w-4 h-4 text-rose-500" />
-          <span>ปักหมุดตำแหน่งบ้านของคุณ (GPS Pin Picker)</span>
+          <MapPin className="w-4 h-4 text-rose-500" />
+          <span>ปักหมุดระบุตำแหน่งปลายทาง (Interactive Map)</span>
         </div>
-        <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">
-          {distance} กม. จาก วก.องครักษ์
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+            {distance} กม. จากวิทยาลัย
+          </span>
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="text-slate-400 hover:text-slate-600 p-0.5"
+              title="ปิดแผนที่"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       <p className="text-[11px] text-slate-600 leading-tight">
-        กรุณาแตะเลือกบนแผนที่ หรือกดใช้พิกัดปัจจุบัน เพื่อให้ครูและงานปกครองทราบจุดหมายปลายทาง
+        แตะเลือกบนแผนที่ หรือเลื่อนหมุดสีแดงไปยังจุดหมายที่ต้องการเดินทางไป:
       </p>
 
       {/* Preset Buttons */}
@@ -223,17 +241,18 @@ export default function ChatMapPicker({ onSelect, initialLat, initialLng }: Chat
           ) : (
             <Crosshair className="w-3.5 h-3.5" />
           )}
-          <span>พิกัด GPS ปัจจุบัน</span>
+          <span>GPS ปัจจุบัน</span>
         </button>
 
-        {HOME_PRESETS.map((preset, idx) => (
+        {DESTINATION_PRESETS.map((preset, idx) => (
           <button
             key={idx}
             type="button"
-            onClick={() => updatePin(preset.lat, preset.lng, preset.name)}
-            className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] transition-colors"
+            onClick={() => updatePin(preset.lat, preset.lng, preset.name, preset.isReturn)}
+            className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-medium transition-colors flex items-center gap-1"
           >
-            {preset.name.replace('บ้านพัก ', '')}
+            <span>{preset.icon}</span>
+            <span>{preset.name}</span>
           </button>
         ))}
       </div>
@@ -247,6 +266,31 @@ export default function ChatMapPicker({ onSelect, initialLat, initialLng }: Chat
         </div>
       </div>
 
+      {/* Return Option Toggle */}
+      <div className="flex items-center justify-between px-1 py-1 bg-slate-50 rounded-xl text-[11px] text-slate-600">
+        <span>การเดินทางกลับ:</span>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setIsReturn(1)}
+            className={`px-2.5 py-0.5 rounded-lg font-medium transition-all ${
+              isReturn === 1 ? 'bg-blue-600 text-white shadow-xs' : 'bg-white text-slate-600 border border-slate-200'
+            }`}
+          >
+            ต้องกลับวิทยาลัย
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsReturn(0)}
+            className={`px-2.5 py-0.5 rounded-lg font-medium transition-all ${
+              isReturn === 0 ? 'bg-amber-600 text-white shadow-xs' : 'bg-white text-slate-600 border border-slate-200'
+            }`}
+          >
+            กลับบ้านเลย (ไม่กลับ)
+          </button>
+        </div>
+      </div>
+
       {/* Confirm Button */}
       <button
         type="button"
@@ -254,7 +298,7 @@ export default function ChatMapPicker({ onSelect, initialLat, initialLng }: Chat
         className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold text-xs shadow-md shadow-blue-500/20 flex items-center justify-center gap-1.5 transition-all active:scale-[0.98]"
       >
         <CheckCircle2 className="w-4 h-4" />
-        <span>ยืนยันพิกัดบ้าน ({distance} กม.)</span>
+        <span>ยืนยันพิกัดจุดหมาย: {locationName} ({distance} กม.)</span>
       </button>
     </div>
   );

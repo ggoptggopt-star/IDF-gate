@@ -21,6 +21,10 @@ import {
   Pause,
   Home,
   Check,
+  Camera,
+  X,
+  Lock,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { LeaveRequest } from '@/types';
 
@@ -58,6 +62,17 @@ function TripContent() {
     lat: OICEC_LAT,
     lng: OICEC_LNG,
   });
+
+  // Live Camera Only Modal state
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+  const [cameraAction, setCameraAction] = useState<'dest' | 'return'>('dest');
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const fileCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   // Map references
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -148,6 +163,7 @@ function TripContent() {
         iconSize: [32, 32],
         iconAnchor: [16, 16],
       });
+
       L.marker([OICEC_LAT, OICEC_LNG], { icon: collegeIcon })
         .addTo(map)
         .bindPopup('<b>วิทยาลัยการอาชีพองครักษ์ (OICEC)</b><br>จุดเริ่มต้น');
@@ -267,8 +283,114 @@ function TripContent() {
     return () => clearInterval(interval);
   }, [isAutoPlaying]);
 
+  // Open Live Camera
+  const openLiveCamera = async (type: 'dest' | 'return') => {
+    setCameraAction(type);
+    setCapturedPhoto(null);
+    setCameraModalOpen(true);
+
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        });
+        setCameraStream(stream);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+        }
+      }
+    } catch (e) {
+      console.warn('WebRTC Camera not available or denied, falling back to capture="environment":', e);
+    }
+  };
+
+  const closeLiveCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      setCameraStream(null);
+    }
+    setCameraModalOpen(false);
+    setCapturedPhoto(null);
+  };
+
+  const takeSnapshot = () => {
+    if (!videoRef.current) {
+      // Trigger file capture fallback
+      fileCameraInputRef.current?.click();
+      return;
+    }
+
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      setCapturedPhoto(dataUrl);
+
+      // Stop camera stream preview
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((track) => track.stop());
+        setCameraStream(null);
+      }
+    }
+  };
+
+  const handleMobileFileCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setCapturedPhoto(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Upload captured photo and complete check-in
+  const handleConfirmLivePhoto = async () => {
+    if (!capturedPhoto) return;
+    setUploadingPhoto(true);
+
+    try {
+      // 1. Upload base64 to server
+      const blob = await (await fetch(capturedPhoto)).blob();
+      const formData = new FormData();
+      formData.append('file', blob, `live-${cameraAction}-${Date.now()}.jpg`);
+
+      const uploadRes = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const uploadData = await uploadRes.json();
+      const photoUrl = uploadData.success ? uploadData.url : null;
+
+      // 2. Submit trip action with live photo
+      const actionToSubmit =
+        cameraAction === 'dest'
+          ? isOneWay
+            ? 'complete_trip'
+            : 'arrive_dest'
+          : 'arrive_college';
+
+      await handleAction(actionToSubmit, photoUrl);
+      closeLiveCamera();
+    } catch (e: any) {
+      console.error(e);
+      alert('เกิดข้อผิดพลาดในการบันทึกภาพถ่าย: ' + e.message);
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   // Handle Dynamic Actions
-  const handleAction = async (action: 'arrive_dest' | 'start_return' | 'arrive_college' | 'complete_trip') => {
+  const handleAction = async (
+    action: 'arrive_dest' | 'start_return' | 'arrive_college' | 'complete_trip',
+    photoUrl?: string | null
+  ) => {
     setSubmitting(true);
     try {
       const res = await fetch(`/api/requests/${requestId}/trip`, {
@@ -279,6 +401,7 @@ function TripContent() {
           lat: currentCoord.lat,
           lng: currentCoord.lng,
           speed: 35,
+          photo_url: photoUrl,
         }),
       });
 
@@ -321,7 +444,10 @@ function TripContent() {
   }
 
   const stage = request.trip_stage || 'heading_to_dest';
-  const isCompleted = stage === 'completed' || request.overall_status === 'returned' || (isOneWay && request.overall_status === 'completed_exit' && request.dest_arrived_at);
+  const isCompleted =
+    stage === 'completed' ||
+    request.overall_status === 'returned' ||
+    (isOneWay && request.overall_status === 'completed_exit' && request.dest_arrived_at);
 
   const targetLat = stage === 'heading_back' ? OICEC_LAT : destLat;
   const targetLng = stage === 'heading_back' ? OICEC_LNG : destLng;
@@ -329,19 +455,31 @@ function TripContent() {
   const distanceKm = (distanceMeters / 1000).toFixed(1);
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col relative pb-28">
-      {/* Top Floating Header */}
-      <header className="px-4 py-3 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 flex items-center justify-between sticky top-0 z-30">
+    <div className="min-h-screen bg-slate-900 text-white flex flex-col relative pb-32">
+      {/* Top Floating Header with Mandatory Screen Lock */}
+      <header className="px-4 py-3 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-3">
-          <Link
-            href="/"
-            className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center transition-colors"
-          >
-            <ChevronLeft className="w-5 h-5 text-slate-300" />
-          </Link>
+          {/* Back button ONLY available after trip is completed */}
+          {isCompleted ? (
+            <Link
+              href="/"
+              className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center transition-colors"
+              title="กลับหน้าหลัก"
+            >
+              <ChevronLeft className="w-5 h-5 text-slate-300" />
+            </Link>
+          ) : (
+            <div
+              className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center"
+              title="ระบบล็อกหน้าจอจนกว่าจะสิ้นสุดคำร้อง"
+            >
+              <Lock className="w-4 h-4" />
+            </div>
+          )}
+
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-sm tracking-wide text-white">Rider Trip Mode</span>
+              <span className="font-bold text-sm tracking-wide text-white">Live Trip Mode</span>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
                 GPS Live
@@ -361,6 +499,16 @@ function TripContent() {
           <RotateCcw className="w-4 h-4" />
         </button>
       </header>
+
+      {/* Mandatory Lock Banner for Active Trips */}
+      {!isCompleted && (
+        <div className="bg-amber-950/70 border-b border-amber-700/50 px-3.5 py-1.5 flex items-center gap-2 text-[11px] text-amber-200">
+          <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span>
+            <strong>โหมดล็อกหน้าจอการเดินทาง:</strong> กรุณาเช็คอินด้วยภาพถ่ายสดเมื่อถึงจุดหมาย เพื่อความโปร่งใสและปลอดภัย
+          </span>
+        </div>
+      )}
 
       {/* Full-bleed Interactive Leaflet Map */}
       <div className="relative w-full h-72 sm:h-80 bg-slate-950 border-b border-slate-800">
@@ -393,7 +541,7 @@ function TripContent() {
             </span>
             <button
               onClick={() => setIsAutoPlaying(!isAutoPlaying)}
-              className="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-950/60 border border-cyan-800/60"
+              className="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-950/60 border border-cyan-800/60 cursor-pointer"
             >
               {isAutoPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
               <span>{isAutoPlaying ? 'หยุดเล่น' : 'เล่นอัตโนมัติ'}</span>
@@ -416,6 +564,92 @@ function TripContent() {
               <span>{stage === 'heading_back' ? request.destination_name : 'วิทยาลัยการอาชีพองครักษ์ (0%)'}</span>
               <span className="font-bold text-emerald-400">{simProgress}%</span>
               <span>{stage === 'heading_back' ? 'ถึงวิทยาลัย (100%)' : `${request.destination_name} (100%)`}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 3-Point Evidence Timeline */}
+        <div className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-4 shadow-sm text-xs space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-700/60 pb-2">
+            <span className="font-bold text-white flex items-center gap-1.5">
+              <Camera className="w-4 h-4 text-cyan-400" />
+              <span>หลักฐานการเดินทาง 3 จุด (3-Point Evidence Timeline)</span>
+            </span>
+            <span className="text-[10px] text-slate-400">ตรวจสอบความโปร่งใส</span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {/* Point 1: Request Attachment */}
+            <div className="bg-slate-900/80 border border-slate-700/60 rounded-xl p-2 flex flex-col justify-between">
+              <div>
+                <p className="text-[10px] font-bold text-blue-300">1. ตอนยื่นคำขอ</p>
+                <p className="text-[9px] text-slate-400">เอกสาร / แชทผู้ปกครอง</p>
+              </div>
+              <div className="mt-2 aspect-square rounded-lg overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center relative">
+                {request.attachment_path ? (
+                  <img
+                    src={request.attachment_path}
+                    alt="หลักฐาน 1"
+                    onClick={() => setPreviewPhotoUrl(request.attachment_path!)}
+                    className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                  />
+                ) : (
+                  <span className="text-[9px] text-slate-500 text-center px-1">ไม่มีเอกสาร (ข้าม)</span>
+                )}
+              </div>
+              <span className="text-[9px] text-emerald-400 font-medium mt-1">✓ ยื่นแล้ว</span>
+            </div>
+
+            {/* Point 2: Destination Live Photo */}
+            <div className="bg-slate-900/80 border border-slate-700/60 rounded-xl p-2 flex flex-col justify-between">
+              <div>
+                <p className="text-[10px] font-bold text-amber-300">2. ถึงจุดหมาย</p>
+                <p className="text-[9px] text-slate-400">รูปถ่ายสด ณ ปลายทาง</p>
+              </div>
+              <div className="mt-2 aspect-square rounded-lg overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center relative">
+                {request.dest_checkin_photo_path ? (
+                  <img
+                    src={request.dest_checkin_photo_path}
+                    alt="หลักฐาน 2"
+                    onClick={() => setPreviewPhotoUrl(request.dest_checkin_photo_path!)}
+                    className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                  />
+                ) : request.dest_arrived_at ? (
+                  <span className="text-[9px] text-emerald-400 font-bold text-center px-1">✓ พิกัดยืนยัน</span>
+                ) : (
+                  <span className="text-[9px] text-slate-500 text-center px-1">รอเช็คอิน</span>
+                )}
+              </div>
+              <span className="text-[9px] text-slate-400 mt-1 truncate">
+                {request.dest_arrived_at ? request.dest_arrived_at.slice(11, 16) + ' น.' : 'ยังไม่ถึง'}
+              </span>
+            </div>
+
+            {/* Point 3: Return Live Photo */}
+            <div className="bg-slate-900/80 border border-slate-700/60 rounded-xl p-2 flex flex-col justify-between">
+              <div>
+                <p className="text-[10px] font-bold text-emerald-300">3. กลับวิทยาลัย</p>
+                <p className="text-[9px] text-slate-400">รูปถ่ายสดรายงานตัว</p>
+              </div>
+              <div className="mt-2 aspect-square rounded-lg overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center relative">
+                {isOneWay ? (
+                  <span className="text-[9px] text-slate-400 text-center px-1">ไม่ต้องกลับ (จบที่บ้าน)</span>
+                ) : request.return_checkin_photo_path ? (
+                  <img
+                    src={request.return_checkin_photo_path}
+                    alt="หลักฐาน 3"
+                    onClick={() => setPreviewPhotoUrl(request.return_checkin_photo_path!)}
+                    className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                  />
+                ) : request.return_arrived_at ? (
+                  <span className="text-[9px] text-emerald-400 font-bold text-center px-1">✓ กลับแล้ว</span>
+                ) : (
+                  <span className="text-[9px] text-slate-500 text-center px-1">รอรายงานตัว</span>
+                )}
+              </div>
+              <span className="text-[9px] text-slate-400 mt-1 truncate">
+                {isOneWay ? 'ไม่กลับ' : request.return_arrived_at ? request.return_arrived_at.slice(11, 16) + ' น.' : 'ยังไม่กลับ'}
+              </span>
             </div>
           </div>
         </div>
@@ -493,40 +727,12 @@ function TripContent() {
                     {isCompleted ? <Check className="w-3.5 h-3.5" /> : <span className="text-[10px]">5</span>}
                   </div>
                   <div className="text-xs">
-                    <p className="font-semibold text-white">5. สแกนเข้าประตูวิทยาลัย (จบคำร้องสมบูรณ์)</p>
+                    <p className="font-semibold text-white">5. รายงานตัวกลับถึงวิทยาลัย (จบคำร้องสมบูรณ์)</p>
                     <p className="text-[10px] text-slate-400">รายงานตัวกลับเรียบร้อย</p>
                   </div>
                 </div>
               </>
             )}
-          </div>
-        </div>
-
-        {/* Trip Destination Info Card */}
-        <div className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-4 shadow-sm text-xs space-y-2">
-          <div className="flex items-center justify-between border-b border-slate-700/60 pb-2">
-            <span className="font-bold text-white flex items-center gap-1.5">
-              <MapPin className="w-4 h-4 text-emerald-400" />
-              <span>{request.destination_name}</span>
-            </span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-semibold">
-              {request.category === 'medical' ? 'พบแพทย์' : isOneWay ? 'กลับบ้าน' : 'ธุระจำเป็น'}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-slate-300 text-[11px] pt-1">
-            <div>
-              <span className="text-slate-400">นักศึกษา:</span> {request.student_name}
-            </div>
-            <div>
-              <span className="text-slate-400">ชั้นเรียน:</span> {request.group_code || 'ปวส.2/1 DBT'}
-            </div>
-            <div>
-              <span className="text-slate-400">เวลาออก:</span> {request.allowed_start_time} น.
-            </div>
-            <div>
-              <span className="text-slate-400">เวลากลับ:</span> {isOneWay ? 'ไม่ต้องกลับ (สิ้นสุดที่บ้าน)' : `${request.allowed_end_time} น.`}
-            </div>
           </div>
         </div>
 
@@ -544,7 +750,7 @@ function TripContent() {
             </p>
             <Link
               href="/"
-              className="inline-flex items-center gap-1.5 mt-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold rounded-xl text-xs transition-colors"
+              className="inline-flex items-center gap-1.5 mt-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold rounded-xl text-xs transition-colors cursor-pointer"
             >
               <span>กลับสู่หน้าหลัก</span>
               <ArrowRight className="w-4 h-4" />
@@ -553,22 +759,22 @@ function TripContent() {
         )}
       </div>
 
-      {/* Bottom Sticky Action Bar (Dynamic Rider Controls) */}
+      {/* Bottom Sticky Action Bar (Live Camera Only Check-in Controls) */}
       {!isCompleted && (
         <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-4 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 z-40">
           {/* CASE A: One-Way (e.g. Return Home) */}
           {isOneWay ? (
             <button
-              onClick={() => handleAction('complete_trip')}
+              onClick={() => openLiveCamera('dest')}
               disabled={submitting}
-              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50"
+              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
             >
               {submitting ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
                 <>
-                  <Home className="w-5 h-5" />
-                  <span>📍 ถึงบ้านแล้ว (จบคำร้อง)</span>
+                  <Camera className="w-5 h-5 text-amber-300" />
+                  <span>📸 ถ่ายรูปสดเช็คอินถึงบ้าน (จบคำร้อง)</span>
                 </>
               )}
             </button>
@@ -577,28 +783,28 @@ function TripContent() {
             <div className="space-y-2">
               {stage === 'heading_to_dest' || stage === 'not_started' ? (
                 <button
-                  onClick={() => handleAction('arrive_dest')}
+                  onClick={() => openLiveCamera('dest')}
                   disabled={submitting}
-                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm shadow-lg shadow-blue-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50"
+                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm shadow-lg shadow-blue-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
                 >
                   {submitting ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : (
                     <>
-                      <MapPin className="w-5 h-5" />
-                      <span>📍 ถึงจุดหมายแล้ว ({request.destination_name})</span>
+                      <Camera className="w-5 h-5 text-amber-300" />
+                      <span>📸 ถ่ายรูปสดเช็คอินถึงจุดหมาย ({request.destination_name})</span>
                     </>
                   )}
                 </button>
               ) : stage === 'at_dest' ? (
                 <div className="space-y-2">
                   <div className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-2 text-center font-medium">
-                    📍 อยู่ที่จุดหมายปลายทางแล้ว เมื่อเสร็จธุระกดเริ่มเดินทางกลับ
+                    📍 เช็คอินจุดหมายเรียบร้อยแล้ว เมื่อเสร็จธุระกดเริ่มเดินทางกลับ
                   </div>
                   <button
                     onClick={() => handleAction('start_return')}
                     disabled={submitting}
-                    className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-900 font-bold text-sm shadow-lg shadow-amber-900/30 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50"
+                    className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-900 font-bold text-sm shadow-lg shadow-amber-900/30 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
                   >
                     {submitting ? (
                       <div className="w-5 h-5 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
@@ -612,22 +818,139 @@ function TripContent() {
                 </div>
               ) : stage === 'heading_back' ? (
                 <button
-                  onClick={() => handleAction('arrive_college')}
+                  onClick={() => openLiveCamera('return')}
                   disabled={submitting}
-                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50"
+                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
                 >
                   {submitting ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : (
                     <>
-                      <Building2 className="w-5 h-5" />
-                      <span>🏁 กลับถึงวิทยาลัยแล้ว (จบคำร้อง)</span>
+                      <Camera className="w-5 h-5 text-amber-300" />
+                      <span>📸 ถ่ายรูปสดรายงานตัวกลับถึงวิทยาลัย</span>
                     </>
                   )}
                 </button>
               ) : null}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Live Camera Only Modal */}
+      {cameraModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-between p-4 animate-fadeIn">
+          {/* Hidden Mobile Camera Input Fallback */}
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            ref={fileCameraInputRef}
+            onChange={handleMobileFileCapture}
+            className="hidden"
+          />
+
+          {/* Top Bar */}
+          <div className="w-full max-w-md flex items-center justify-between text-white pb-3 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <Camera className="w-5 h-5 text-emerald-400" />
+              <div>
+                <p className="font-bold text-xs">
+                  {cameraAction === 'dest' ? 'ถ่ายภาพสด ณ สถานที่ปลายทาง' : 'ถ่ายภาพสด ณ ประตูวิทยาลัย'}
+                </p>
+                <p className="text-[10px] text-slate-400">ระบบบังคับเปิดกล้องสดเท่านั้น (ห้ามใช้รูปเก่า)</p>
+              </div>
+            </div>
+            <button
+              onClick={closeLiveCamera}
+              className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Video Viewport / Photo Preview */}
+          <div className="w-full max-w-md flex-1 my-3 relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center">
+            {capturedPhoto ? (
+              <div className="relative w-full h-full flex items-center justify-center">
+                <img src={capturedPhoto} alt="Snapshot Preview" className="w-full h-full object-contain" />
+                <div className="absolute bottom-3 left-3 bg-black/75 px-3 py-1.5 rounded-lg text-[10px] font-mono text-emerald-400">
+                  📍 {currentCoord.lat.toFixed(4)}, {currentCoord.lng.toFixed(4)} • {new Date().toLocaleTimeString()}
+                </div>
+              </div>
+            ) : (
+              <div className="relative w-full h-full flex flex-col items-center justify-center">
+                <video ref={videoRef} playsInline autoPlay muted className="w-full h-full object-cover" />
+                <div className="absolute top-3 right-3 bg-red-600/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
+                  <span className="w-2 h-2 rounded-full bg-white"></span>
+                  LIVE CAMERA
+                </div>
+                <div className="absolute bottom-3 inset-x-3 text-center bg-black/60 backdrop-blur-xs py-1.5 px-2 rounded-lg text-[10px] text-slate-300">
+                  หันกล้องไปที่ป้ายสถานที่ หรือถ่ายภาพบริเวณที่อยู่เพื่อยืนยัน
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Shutter / Confirm Controls */}
+          <div className="w-full max-w-md flex flex-col gap-2 pt-2">
+            {capturedPhoto ? (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => openLiveCamera(cameraAction)}
+                  className="py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>ถ่ายใหม่</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmLivePhoto}
+                  disabled={uploadingPhoto}
+                  className="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg flex items-center justify-center gap-1.5 transition-all"
+                >
+                  {uploadingPhoto ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>ยืนยันและเช็คอิน</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={takeSnapshot}
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-sm shadow-lg flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <Camera className="w-5 h-5 text-amber-200" />
+                  <span>📸 กดชัตเตอร์ถ่ายภาพสด</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileCameraInputRef.current?.click()}
+                  className="text-[11px] text-slate-400 hover:text-slate-200 text-center py-1 underline cursor-pointer"
+                >
+                  เปิดกล้องด้วยแอปกล้องของเครื่อง (มือถือ)
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Full Photo Modal Viewer */}
+      {previewPhotoUrl && (
+        <div
+          onClick={() => setPreviewPhotoUrl(null)}
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 cursor-pointer"
+        >
+          <img src={previewPhotoUrl} alt="Photo Preview" className="max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl" />
+          <p className="text-white text-xs mt-3 bg-black/50 px-3 py-1 rounded-full">แตะที่ใดก็ได้เพื่อปิด</p>
         </div>
       )}
     </div>

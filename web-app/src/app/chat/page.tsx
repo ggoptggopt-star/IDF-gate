@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ChevronLeft,
+  ChevronRight,
   Sparkles,
   Send,
   Paperclip,
@@ -25,6 +26,10 @@ import {
   ThumbsUp,
   XCircle,
   RotateCcw,
+  DoorOpen,
+  ClipboardList,
+  HelpCircle,
+  MapPin,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { LeaveRequest } from '@/types';
@@ -56,6 +61,8 @@ interface ChatMessage {
   attachmentUrl?: string | null;
   requestCard?: LeaveRequest;
   quickPills?: string[];
+  categoryMenu?: boolean;
+  faqList?: boolean;
   checkinCard?: {
     destination: string;
     distance_m: number;
@@ -64,14 +71,6 @@ interface ChatMessage {
     maps_url: string;
   };
 }
-
-const STANDARD_QUICK_PILLS = [
-  'ขอออก',
-  'ขอไปพบแพทย์ตามนัด',
-  'ผู้ปกครองมารับกลับบ้านก่อนเวลา',
-  'เช็คสถานะคำร้องล่าสุดของฉัน',
-  'วิธีสแกนใบหน้าเปิดไม้กั้นประตู',
-];
 
 function getMessengerDivider(curr: ChatMessage, prev?: ChatMessage): { show: boolean; label: string } {
   const currTs = curr.timestamp || Date.now();
@@ -122,7 +121,7 @@ function getMessengerDivider(curr: ChatMessage, prev?: ChatMessage): { show: boo
 function ChatContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const categoryParam = searchParams.get('category');
+  const initialCategory = searchParams.get('category');
   const { user, isLoading } = useAuth();
 
   useEffect(() => {
@@ -136,15 +135,14 @@ function ChatContent() {
   const [latestRequest, setLatestRequest] = useState<LeaveRequest | null>(null);
   const [pendingRequests, setPendingRequests] = useState<LeaveRequest[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [geminiApiKey, setGeminiApiKey] = useState('');
-  
-  // Slot-Filling State (for student role)
   const [currentSlots, setCurrentSlots] = useState<ChatSlots>({});
   const [missingSlots, setMissingSlots] = useState<string[]>([]);
-  const [askAttachmentNow, setAskAttachmentNow] = useState(false);
+  const [askAttachmentNow, setAskAttachmentNow] = useState<boolean>(false);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
   const [selectedAttachmentUrl, setSelectedAttachmentUrl] = useState<string | null>(null);
   const [previewModalUrl, setPreviewModalUrl] = useState<string | null>(null);
+  const [geminiApiKey, setGeminiApiKey] = useState<string>('');
+  const [showMapPicker, setShowMapPicker] = useState<boolean>(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -153,42 +151,42 @@ function ChatContent() {
     switch (role) {
       case 'subject_teacher': return 1;
       case 'advisor': return 2;
-      case 'dept_head': return 3;
+      case 'department_head': return 3;
       case 'discipline': return 4;
       case 'deputy_director': return 5;
       default: return 0;
     }
   };
 
-  const getRoleTitleForStep = (step: number): string => {
-    switch (step) {
-      case 1: return 'ครูประจำวิชา (ขั้นที่ 1)';
-      case 2: return 'ครูที่ปรึกษา (ขั้นที่ 2)';
-      case 3: return 'หัวหน้าแผนกวิชา ทธด. (ขั้นที่ 3)';
-      case 4: return 'เจ้าหน้าที่งานปกครอง (ขั้นที่ 4)';
-      case 5: return 'รองผู้อำนวยการฝ่ายพัฒนากิจการฯ (ขั้นที่ 5)';
-      default: return 'เจ้าหน้าที่พิจารณา';
-    }
-  };
-
-  const getRoleTitle = (role?: string): string => {
+  const getRoleTitle = (role?: string) => {
     switch (role) {
-      case 'subject_teacher': return 'ครูประจำวิชา (ขั้นที่ 1)';
+      case 'subject_teacher': return 'ครูผู้สอน (ขั้นที่ 1)';
       case 'advisor': return 'ครูที่ปรึกษา (ขั้นที่ 2)';
-      case 'dept_head': return 'หัวหน้าแผนกวิชา ทธด. (ขั้นที่ 3)';
-      case 'discipline': return 'เจ้าหน้าที่งานปกครอง (ขั้นที่ 4)';
+      case 'department_head': return 'หัวหน้าแผนกวิชา (ขั้นที่ 3)';
+      case 'discipline': return 'งานปกครอง (ขั้นที่ 4)';
       case 'deputy_director': return 'รองผู้อำนวยการ (ขั้นที่ 5)';
-      case 'guard': return 'เจ้าหน้าที่ รปภ. ประตู 1';
-      case 'admin': return 'ผู้ดูแลระบบ';
+      case 'admin': return 'ผู้ดูแลระบบ (Admin)';
+      case 'guard': return 'รปภ. ประตู 1';
       default: return 'นักศึกษา';
     }
   };
 
-  const isGuard = user?.role === 'guard';
-  const isApprover = (user?.role && user.role !== 'student' && user.role !== 'guard') || user?.role === 'admin';
-  const userStep = getApproverStep(user?.role);
+  const getRoleTitleForStep = (step: number) => {
+    switch (step) {
+      case 1: return 'ครูผู้สอนประจำวิชา';
+      case 2: return 'ครูที่ปรึกษา';
+      case 3: return 'หัวหน้าแผนกวิชา';
+      case 4: return 'เจ้าหน้าที่งานปกครอง';
+      case 5: return 'รองผู้อำนวยการฝ่ายพัฒนากิจการฯ';
+      default: return 'รอดำเนินการ';
+    }
+  };
 
-  // Smart Auto-Scroll State & Refs (LINE / Telegram style)
+  const userStep = getApproverStep(user?.role);
+  const isApprover = userStep > 0 || user?.role === 'admin';
+  const isGuard = user?.role === 'guard';
+
+  // Smart User Scrolling State
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const isUserNearBottomRef = useRef(true);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
@@ -197,7 +195,7 @@ function ChatContent() {
   const handleScroll = () => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    const threshold = 120; // within 120px from bottom
+    const threshold = 120;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
     isUserNearBottomRef.current = nearBottom;
     setShowScrollBottomBtn(!nearBottom);
@@ -211,7 +209,6 @@ function ChatContent() {
     }
   };
 
-  // Only auto-scroll when NEW message is added AND user is already near bottom
   useEffect(() => {
     if (messages.length > prevMessagesCountRef.current) {
       if (isUserNearBottomRef.current) {
@@ -227,7 +224,7 @@ function ChatContent() {
     if (savedKey) setGeminiApiKey(savedKey);
   }, []);
 
-  // Filter out any legacy mock messages, hardcoded dummy requests, or dumped cards
+  // Filter out any legacy mock messages, hardcoded dummy requests, or cross-role leaks
   const cleanLegacyMsgs = (list: ChatMessage[]): ChatMessage[] => {
     return list.filter((m) => {
       if (!m || !m.id) return false;
@@ -238,6 +235,22 @@ function ChatContent() {
       if (idStr === 'msg-1' || idStr === 'msg-2' || idStr === 'msg-checkin') return false;
       if (idStr === 'welcome-greet' || idStr === 'welcome-options' || idStr === 'welcome-greet-fallback') return false;
       if (idStr.startsWith('welcome-greet-') || idStr.startsWith('welcome-options-')) return false;
+
+      // Filter out teacher greeting/cards from student view
+      if (!isApprover && !isGuard) {
+        if (m.sender === 'teacher') return false;
+        if (m.text && (m.text.includes('ครูประจำวิชา') || m.text.includes('คุณอรรถเดช') || m.text.includes('รอดำเนินการในขั้นของท่าน'))) {
+          return false;
+        }
+      }
+
+      // Filter out student greetings from teacher view
+      if (isApprover) {
+        if (m.text && m.text.includes('ผมคือน้องเกต AI ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัย')) {
+          return false;
+        }
+      }
+
       return true;
     });
   };
@@ -268,6 +281,9 @@ function ChatContent() {
     if (messagesUserIdRef.current !== currentUserId) {
       messagesUserIdRef.current = currentUserId;
       setMessages([]);
+      setCurrentSlots({});
+      setMissingSlots([]);
+      setShowMapPicker(false);
     }
   }, [currentUserId]);
 
@@ -275,7 +291,7 @@ function ChatContent() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      if (localStorage.getItem('sgp_chat_clean_v6') !== 'true') {
+      if (localStorage.getItem('sgp_chat_clean_v8') !== 'true') {
         Object.keys(localStorage).forEach((key) => {
           if (key.startsWith('sgp_chat_history_')) {
             try {
@@ -290,7 +306,7 @@ function ChatContent() {
             } catch {}
           }
         });
-        localStorage.setItem('sgp_chat_clean_v6', 'true');
+        localStorage.setItem('sgp_chat_clean_v8', 'true');
       }
     } catch {}
   }, []);
@@ -349,16 +365,16 @@ function ChatContent() {
       };
     }
 
-    // Default / Student View
+    // Default / Student View (3 Main Categories Guided Menu Card)
     return {
       id: `greet-${Date.now()}`,
       sender: 'bot',
-      text: `สวัสดีครับ คุณ ${targetUser?.full_name || 'นักศึกษา'} 👋\nผมคือน้องเกต AI ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัยครับ วันนี้ต้องการยื่นคำร้องหรือสอบถามเรื่องใด แตะเลือกหัวข้อด้านล่าง หรือพิมพ์บอกผมได้เลยครับ 🏫`,
+      text: `สวัสดีครับ คุณ ${targetUser?.full_name || 'นักศึกษา'} 👋\nผมคือน้องเกต AI ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัยและควบคุมไม้กั้นอัตโนมัติ ยินดีให้บริการครับ\nแตะเลือกเมนูด้านล่างหรือพิมพ์ข้อความคุยกับผมได้เลยครับ 🏫`,
       time: timeStr,
       timestamp: Date.now(),
       dateStr: todayStr,
       poweredBy: 'Google Gemini AI',
-      quickPills: STANDARD_QUICK_PILLS,
+      categoryMenu: true,
     };
   };
 
@@ -372,6 +388,7 @@ function ChatContent() {
       setMissingSlots([]);
       setAskAttachmentNow(false);
       setSelectedAttachmentUrl(null);
+      setShowMapPicker(false);
       const now = new Date();
       const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -379,6 +396,195 @@ function ChatContent() {
       messagesUserIdRef.current = currentUserId;
       setMessages([freshGreet]);
     }
+  };
+
+  // Return to Main Menu (3 Categories)
+  const handleReturnToMainMenu = () => {
+    const now = new Date();
+    const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    setShowMapPicker(false);
+    setCurrentSlots({});
+    setMissingSlots([]);
+    setAskAttachmentNow(false);
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `stu-menu-${Date.now()}`,
+        sender: 'student',
+        text: '🏠 กลับสู่เมนูหลัก',
+        time: nowTime,
+        timestamp: Date.now(),
+        dateStr: todayStr,
+      },
+      {
+        id: `bot-menu-${Date.now()}`,
+        sender: 'bot',
+        text: 'กลับสู่เมนูหลักเรียบร้อยครับ กรุณาเลือกรายการที่ต้องการทำรายการครับ:',
+        time: nowTime,
+        timestamp: Date.now() + 50,
+        dateStr: todayStr,
+        poweredBy: 'Google Gemini AI',
+        categoryMenu: true,
+      },
+    ]);
+  };
+
+  // Handle 3 Main Category Card clicks
+  const handleCategorySelect = async (type: 'leave' | 'status' | 'faq') => {
+    const now = new Date();
+    const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    if (type === 'leave') {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `stu-cat-${Date.now()}`,
+          sender: 'student',
+          text: '🚪 ขออนุญาตออกนอกวิทยาลัย',
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+        {
+          id: `bot-cat-${Date.now()}`,
+          sender: 'bot',
+          text: 'รับทราบครับ กรุณาเลือกหมวดหมู่และระบุเหตุผลความจำเป็นในการขอออกนอกวิทยาลัยครับ (แตะเลือกปุ่มหมวดหมู่ด้านล่าง หรือพิมพ์บอกผมได้เลยครับ):',
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: todayStr,
+          poweredBy: 'Google Gemini AI',
+        },
+      ]);
+      return;
+    }
+
+    if (type === 'status') {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `stu-status-${Date.now()}`,
+          sender: 'student',
+          text: '📋 ติดตามสถานะคำร้องของฉัน',
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+      ]);
+
+      const studentId = user?.id || 'user-stu-akkaracha';
+      try {
+        const res = await fetch(`/api/requests?student_id=${studentId}`);
+        const data = await res.json();
+        if (data.success && data.requests && data.requests.length > 0) {
+          const fresh = data.requests[0];
+          setLatestRequest(fresh);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `bot-status-${Date.now()}`,
+              sender: 'bot',
+              text: `นี่คือข้อมูลสถานะคำร้องล่าสุดของคุณครับ (รหัสคำร้อง #${fresh.request_code}):`,
+              time: nowTime,
+              timestamp: Date.now(),
+              dateStr: todayStr,
+              poweredBy: 'Google Gemini AI',
+              requestCard: fresh,
+            },
+          ]);
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `bot-status-empty-${Date.now()}`,
+              sender: 'bot',
+              text: 'ขณะนี้ยังไม่พบประวัติการยื่นคำร้องของคุณในระบบครับ คุณสามารถแตะเลือก [🚪 ขออนุญาตออกนอกวิทยาลัย] เพื่อเริ่มต้นยื่นคำร้องได้เลยครับ',
+              time: nowTime,
+              timestamp: Date.now(),
+              dateStr: todayStr,
+              poweredBy: 'Google Gemini AI',
+              categoryMenu: true,
+            },
+          ]);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+      return;
+    }
+
+    if (type === 'faq') {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `stu-faq-${Date.now()}`,
+          sender: 'student',
+          text: '❓ คำถามที่พบบ่อย (FAQ)',
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+        {
+          id: `bot-faq-${Date.now()}`,
+          sender: 'bot',
+          text: 'หัวข้อคำถามที่พบบ่อยและข้อมูลแนะนำการใช้งานระบบ: สามารถแตะเลือกหัวข้อที่ต้องการทราบได้เลยครับ',
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: todayStr,
+          poweredBy: 'Google Gemini AI',
+          faqList: true,
+        },
+      ]);
+      return;
+    }
+  };
+
+  // Handle Category selection from dynamic quick buttons
+  const handleSelectCategoryPill = (cat: 'medical' | 'personal' | 'department' | 'parent_pickup') => {
+    let catName = 'ธุระส่วนตัวจำเป็น';
+    if (cat === 'medical') catName = 'พบแพทย์ / ป่วย';
+    if (cat === 'department') catName = 'ธุระแผนกวิชา';
+    if (cat === 'parent_pickup') catName = 'ผู้ปกครองมารับกลับบ้านก่อนเวลา';
+
+    const updated = {
+      ...currentSlots,
+      category: cat,
+      reason: catName,
+    };
+    setCurrentSlots(updated);
+
+    handleSend(undefined, false, undefined, `ขอออกหมวดหมู่: ${catName}`);
+  };
+
+  // Handle FAQ item click
+  const handleSelectFAQ = (question: string, answer: string) => {
+    const now = new Date();
+    const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `stu-faq-q-${Date.now()}`,
+        sender: 'student',
+        text: question,
+        time: nowTime,
+        timestamp: Date.now(),
+        dateStr: todayStr,
+      },
+      {
+        id: `bot-faq-a-${Date.now()}`,
+        sender: 'bot',
+        text: answer,
+        time: nowTime,
+        timestamp: Date.now() + 50,
+        dateStr: todayStr,
+        poweredBy: 'Google Gemini AI',
+      },
+    ]);
   };
 
   // Fetch requests based on role with live polling & persistent clean chat history
@@ -580,7 +786,7 @@ function ChatContent() {
           }
         }
 
-        // If there's request card in saved history, sync with latest request
+        // If there is request card in saved history, sync with latest request
         if (data.success && data.requests && data.requests.length > 0) {
           const fresh = data.requests[0];
           savedHistory = savedHistory.map((m) =>
@@ -612,128 +818,108 @@ function ChatContent() {
       isCancelled = true;
       clearInterval(interval);
     };
-  }, [user?.id, user?.role, isApprover, isGuard, userStep, currentUserId]);
+  }, [currentUserId, isApprover, isGuard, userStep]);
 
-  // Handle Teacher Direct Approval Action in Chat
+  // Teacher Action: Approve or Reject
   const handleTeacherAction = async (requestId: string, action: 'approve' | 'reject') => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
     try {
-      setIsSubmitting(true);
-      const remark = action === 'approve' ? 'อนุมัติผ่านแชท AI' : 'ไม่อนุมัติตามระเบียบผ่านแชท AI';
       const res = await fetch(`/api/requests/${requestId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action,
-          remark,
-          approver_id: user?.id,
-          approver_role: user?.role,
+          approver_id: user?.id || 'demo-teacher',
+          step: userStep > 0 ? userStep : 1,
         }),
       });
 
       const data = await res.json();
-      if (data.success) {
-        playNotificationSound();
-        const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (data.success && data.request) {
+        const updated = data.request;
 
-        // Update local card state in messages
+        playNotificationSound();
+        sendSystemNotification({
+          title: action === 'approve' ? `✅ อนุมัติสำเร็จ: ${updated.request_code}` : `❌ ปฏิเสธคำร้อง: ${updated.request_code}`,
+          body: action === 'approve'
+            ? `ส่งต่อให้ขั้นที่ ${updated.current_step} เรียบร้อยแล้ว`
+            : `คำร้องถูกยกเลิกแล้ว`,
+          url: '/approver',
+          tag: `approver-${updated.id}`,
+        });
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('sgp_request_updated'));
+          localStorage.setItem('sgp_last_action', Date.now().toString());
+        }
+
+        setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+
         setMessages((prev) =>
           prev.map((m) => {
             if (m.requestCard && m.requestCard.id === requestId) {
-              const updated = { ...m.requestCard };
-              if (action === 'approve') {
-                if (userStep === 1) updated.step1_status = 'approved';
-                if (userStep === 2) updated.step2_status = 'approved';
-                if (userStep === 3) updated.step3_status = 'approved';
-                if (userStep === 4) updated.step4_status = 'approved';
-                if (userStep === 5) {
-                  updated.step5_status = 'approved';
-                  updated.overall_status = 'approved';
-                } else {
-                  updated.current_step = updated.current_step + 1;
-                }
-              } else {
-                updated.overall_status = 'rejected';
-                if (userStep === 1) updated.step1_status = 'rejected';
-                if (userStep === 2) updated.step2_status = 'rejected';
-                if (userStep === 3) updated.step3_status = 'rejected';
-                if (userStep === 4) updated.step4_status = 'rejected';
-                if (userStep === 5) updated.step5_status = 'rejected';
-              }
               return { ...m, requestCard: updated };
             }
             return m;
           })
         );
 
-        // Append bot action confirmation bubble
+        const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         setMessages((prev) => [
           ...prev,
           {
             id: `action-confirm-${Date.now()}`,
             sender: 'bot',
             text: action === 'approve'
-              ? `✓ บันทึกการอนุมัติคำร้องเรียบร้อยครับ!\n${data.message || 'ระบบได้ส่งต่อคำร้องไปยังผู้อนุมัติขั้นถัดไปเรียบร้อยแล้วครับ'}`
-              : `✕ บันทึกการปฏิเสธคำร้องเรียบร้อยแล้วครับ`,
+              ? `✓ บันทึกการอนุมัติคำร้อง #${updated.request_code} เรียบร้อยแล้วครับ\nระบบได้ส่งคำร้องไปยังขั้นตอนถัดไปอัตโนมัติแล้วครับ`
+              : `✕ บันทึกการไม่อนุมัติคำร้อง #${updated.request_code} เรียบร้อยแล้วครับ`,
             time: nowTime,
             poweredBy: 'Google Gemini AI',
           },
         ]);
-
-        // Remove from pending
-        setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
-
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('sgp_request_updated'));
-          localStorage.setItem('sgp_last_action', Date.now().toString());
-        }
       } else {
-        alert(data.error || 'เกิดข้อผิดพลาดในการอนุมัติ');
+        alert(data.error || 'เกิดข้อผิดพลาดในการบันทึกผลการพิจารณา');
       }
     } catch (err) {
       console.error(err);
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Handle Quick Category selection from URL
-  useEffect(() => {
-    if (categoryParam) {
-      if (categoryParam === 'medical') {
-        setInput('ขอไปพบแพทย์ตามนัดที่ โรงพยาบาลองครักษ์ ตอนเที่ยงวันนี้ครับ');
-      } else if (categoryParam === 'personal') {
-        setInput('มีธุระส่วนตัวจำเป็นที่ ที่ว่าการอำเภอองครักษ์ ช่วงบ่ายนี้ครับ');
-      } else if (categoryParam === 'department') {
-        setInput('ไปจัดเตรียมสถานที่และอุปกรณ์นำเสนอโครงงานที่หอประชุมใหญ่');
-      } else if (categoryParam === 'parent_pickup') {
-        setInput('ผู้ปกครองเดินทางมารับกลับบ้านก่อนเวลาตอนเที่ยง');
-      }
-    }
-  }, [categoryParam]);
-
-  // Handle File Upload
+  // Handle Real File Upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setIsUploading(true);
     const formData = new FormData();
     formData.append('file', file);
 
     try {
-      setIsUploading(true);
       const res = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
       });
       const data = await res.json();
-      if (data.success && data.fileUrl) {
-        setSelectedAttachmentUrl(data.fileUrl);
-        await handleSend(undefined, false, data.fileUrl);
+      if (data.success && data.url) {
+        setSelectedAttachmentUrl(data.url);
+        setCurrentSlots((prev) => ({ ...prev, attachment_path: data.url }));
+
+        await handleSend(
+          undefined,
+          false,
+          data.url,
+          'แนบไฟล์ภาพหลักฐานใบนัดแพทย์ / ภาพหน้าจอแชทผู้ปกครองเรียบร้อยแล้วครับ'
+        );
       } else {
         alert(data.error || 'อัปโหลดไฟล์ไม่สำเร็จ');
       }
     } catch (err) {
-      console.error(err);
+      console.error('File upload error:', err);
       alert('เกิดข้อผิดพลาดในการอัปโหลดไฟล์');
     } finally {
       setIsUploading(false);
@@ -756,6 +942,11 @@ function ChatContent() {
     if (!userText && !attachUrl && !skipAttachment) return;
     if (isSubmitting && !overrideAttachmentUrl) return;
 
+    // Check if user triggers map picker
+    if (/เลือกบนแผนที่|ปักหมุด|เปิดแผนที่|พิกัด/i.test(userText) && !isApprover) {
+      setShowMapPicker(true);
+    }
+
     setInput('');
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -763,12 +954,11 @@ function ChatContent() {
     isUserNearBottomRef.current = true;
     setTimeout(() => scrollToBottom(true), 50);
 
-    // 1. If user is an Approver and typed approval words ("อนุมัติ", "ผ่าน", "ไม่อนุมัติ")
+    // 1. If user is an Approver and typed approval words
     if (isApprover) {
       const isApproveCmd = /(อนุมัติ|อนุญาต|ผ่าน|ตกลง|ok|yes)/i.test(userText);
       const isRejectCmd = /(ไม่อนุมัติ|ปฏิเสธ|ไม่อนุญาต|ไม่ให้ไป|ตีกลับ)/i.test(userText);
 
-      // Append teacher chat bubble
       setMessages((prev) => [
         ...prev,
         {
@@ -862,6 +1052,7 @@ function ChatContent() {
           setCurrentSlots({});
           setMissingSlots([]);
           setSelectedAttachmentUrl(null);
+          setShowMapPicker(false);
           playNotificationSound();
           sendSystemNotification({
             title: `🔔 ยื่นคำร้องสำเร็จ: ${data.request.request_code}`,
@@ -912,149 +1103,6 @@ function ChatContent() {
     }
   };
 
-  // Perform GPS Check-in
-  const handleGpsCheckin = async () => {
-    if (!latestRequest) {
-      alert('ยังไม่มีคำร้องที่เปิดใช้งานในขณะนี้');
-      return;
-    }
-
-    const checkinLat = 14.1348;
-    const checkinLng = 100.9922;
-
-    try {
-      const res = await fetch(`/api/requests/${latestRequest.id}/checkin-gps`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat: checkinLat, lng: checkinLng }),
-      });
-      const data = await res.json();
-      if (data.success && data.checkin) {
-        const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `checkin-${Date.now()}`,
-            sender: 'bot',
-            time: nowTime,
-            checkinCard: {
-              destination: latestRequest.destination_name || 'โรงพยาบาลองครักษ์',
-              distance_m: data.checkin.distance_m,
-              verified: data.checkin.verified,
-              time: nowTime,
-              maps_url: data.checkin.maps_url,
-            },
-          },
-        ]);
-      } else {
-        alert(data.error || 'ไม่สามารถเช็คอินได้');
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // Report Return to College
-  const handleReturnReport = () => {
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `return-stu-${Date.now()}`,
-        sender: 'student',
-        text: 'เดินทางกลับมาถึงวิทยาลัยการอาชีพองครักษ์แล้วครับ ขอยืนยันรายงานตัวกลับเข้า',
-        time: nowTime,
-      },
-      {
-        id: `return-bot-${Date.now()}`,
-        sender: 'bot',
-        text: 'ระบบตรวจสอบพิกัด GPS: คุณอยู่ในรัศมีวิทยาลัยการอาชีพองครักษ์เรียบร้อยแล้วครับ กรุณาสแกนใบหน้าที่กล้องประตู 1 เพื่อบันทึกเวลากลับเข้าวิทยาลัยและปิดรอบคำร้องครับ',
-        time: nowTime,
-        poweredBy: 'Google Gemini AI',
-      },
-    ]);
-  };
-
-  // One-Click Instant Request Demo Trigger (No typing needed)
-  const handleQuickInstantRequest = async () => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    // 1. Add student simulated prompt in chat
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `stu-instant-${Date.now()}`,
-        sender: 'student',
-        text: '⚡ [ยื่นคำร้องด่วน 1 คลิก]: ขออนุญาตไปพบแพทย์ตามนัดที่ โรงพยาบาลองครักษ์ วันนี้ เวลา 12:00 - ไม่กลับ น. ครับ',
-        time: nowTime,
-      },
-    ]);
-
-    try {
-      const todayStr = new Date().toISOString().split('T')[0];
-      const res = await fetch('/api/requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          student_id: user?.id || 'user-stu-akkaracha',
-          category: 'medical',
-          reason: 'พบแพทย์ตามนัดที่โรงพยาบาลองครักษ์',
-          destination_name: 'โรงพยาบาลองครักษ์',
-          destination_lat: 14.135,
-          destination_lng: 100.992,
-          leave_date: todayStr,
-          allowed_start_time: '12:00',
-          allowed_end_time: 'ไม่กลับ',
-          course_id: 'cs-hvc2-wed-am',
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success && data.request) {
-        setLatestRequest(data.request);
-        setCurrentSlots({});
-        setMissingSlots([]);
-        setAskAttachmentNow(false);
-
-        // Sound chime and notify
-        playNotificationSound();
-        sendSystemNotification({
-          title: `🔔 ยื่นคำร้องด่วนสำเร็จ: ${data.request.request_code}`,
-          body: `คำร้องส่งต่อไปยังครูผู้สอน (ขั้นที่ 1) เรียบร้อยแล้ว`,
-          url: '/chat',
-          tag: `instant-${data.request.id}`,
-        });
-
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('sgp_request_updated'));
-          localStorage.setItem('sgp_last_action', Date.now().toString());
-        }
-
-        // 2. Append bot confirmation bubble with active request card
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `bot-instant-${Date.now()}`,
-            sender: 'bot',
-            text: `⚡ ดำเนินการยื่นคำร้องด่วน (โหมดสาธิต 1 คลิก) สำเร็จเรียบร้อยครับ!\n📅 วันที่: วันนี้ (เวลา 12:00 - ไม่กลับ น.)\n📍 สถานที่: โรงพยาบาลองครักษ์\nระบบได้ส่งคำร้องเข้าสู่สายพานการพิจารณา 5 ขั้นตอน และแจ้งเตือนครูประจำวิชาเรียบร้อยครับ`,
-            time: nowTime,
-            poweredBy: 'Google Gemini AI',
-            requestCard: data.request,
-          },
-        ]);
-      } else {
-        alert(data.error || 'เกิดข้อผิดพลาดในการสร้างคำร้องด่วน');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   return (
     <div className="flex flex-col h-screen bg-[#F4F7FB] relative">
       {/* Lightbox Image Preview Modal */}
@@ -1063,7 +1111,7 @@ function ChatContent() {
           <div className="relative max-w-lg w-full bg-white rounded-3xl p-4 shadow-2xl">
             <button
               onClick={() => setPreviewModalUrl(null)}
-              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center hover:bg-slate-700 shadow-md"
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center hover:bg-slate-700 shadow-md cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -1075,7 +1123,7 @@ function ChatContent() {
               />
             </div>
             <div className="mt-2.5 text-center">
-              <span className="text-xs font-bold text-slate-800">เอกสารหลักฐาน / รูปภาพแชทผู้ปกครอง</span>
+              <span className="text-xs font-bold text-slate-800">เอกสารหลักฐาน / รูปถ่ายเช็คอินพิกัด GPS สด</span>
               <p className="text-[11px] text-slate-500">บันทึกลงในระบบ Smart Gate Pass AI เรียบร้อย</p>
             </div>
           </div>
@@ -1110,7 +1158,7 @@ function ChatContent() {
               <button
                 type="button"
                 onClick={handleResetChat}
-                className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-slate-200 hover:text-white transition-all flex items-center gap-1 text-[11px] font-medium px-2.5"
+                className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-slate-200 hover:text-white transition-all flex items-center gap-1 text-[11px] font-medium px-2.5 cursor-pointer"
                 title="เริ่มการสนทนาใหม่ (ล้างประวัติแชท)"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
@@ -1156,7 +1204,7 @@ function ChatContent() {
                 setMissingSlots([]);
                 setAskAttachmentNow(false);
               }}
-              className="text-[10px] text-blue-600 hover:underline font-semibold shrink-0"
+              className="text-[10px] text-blue-600 hover:underline font-semibold shrink-0 cursor-pointer"
             >
               เริ่มใหม่
             </button>
@@ -1183,7 +1231,7 @@ function ChatContent() {
                 <div className="flex flex-col items-end">
                 <div className="max-w-[85%] bg-[#DCE6F2] text-slate-800 text-xs rounded-2xl rounded-tr-xs px-4 py-3 shadow-2xs leading-relaxed space-y-2">
                   <div>{m.text}</div>
-                  
+
                   {/* Attached Image Bubble */}
                   {m.attachmentUrl && (
                     <div
@@ -1236,19 +1284,123 @@ function ChatContent() {
                     </div>
                   )}
 
-                  {/* Quick Action Pills (Grab Help Centre Style) */}
-                  {m.quickPills && m.quickPills.length > 0 && (
-                    <div className="flex flex-col items-end gap-2 mt-2 w-full select-none pl-2">
-                      {m.quickPills.map((pill, pIdx) => (
-                        <button
-                          key={pIdx}
-                          onClick={() => handleSend(undefined, false, undefined, pill)}
-                          disabled={isSubmitting}
-                          className="bg-[#EAF7F6] hover:bg-[#D5EFEA] active:scale-95 text-[#0A695E] dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 font-semibold text-xs px-4 py-2.5 rounded-2xl shadow-2xs border border-[#BCE8E0] transition-all cursor-pointer text-right flex items-center justify-end self-end max-w-[90%]"
-                        >
-                          <span>{pill}</span>
-                        </button>
-                      ))}
+                  {/* 3 Main Categories Guided Menu Card ([9.4] Pillar 1) */}
+                  {m.categoryMenu && !isApprover && !isGuard && (
+                    <div className="mt-3 space-y-2 w-full max-w-md animate-fadeIn">
+                      <button
+                        type="button"
+                        onClick={() => handleCategorySelect('leave')}
+                        disabled={isSubmitting}
+                        className="w-full p-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl shadow-sm text-left flex items-center justify-between group transition-all active:scale-[0.99] cursor-pointer"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0 text-white">
+                            <DoorOpen className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <div className="font-bold text-xs sm:text-sm">🚪 ขออนุญาตออกนอกวิทยาลัย</div>
+                            <div className="text-[11px] text-blue-100 opacity-90 mt-0.5">
+                              ยื่นคำร้องผ่านระบบ AI 5 ขั้นตอน พร้อมเปิดไม้กั้นอัตโนมัติ
+                            </div>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-white/70 group-hover:translate-x-0.5 transition-transform" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCategorySelect('status')}
+                        disabled={isSubmitting}
+                        className="w-full p-3.5 bg-white hover:bg-slate-50 border border-slate-200/80 rounded-2xl shadow-2xs text-left flex items-center justify-between group transition-all active:scale-[0.99] cursor-pointer"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                            <ClipboardList className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <div className="font-bold text-xs sm:text-sm text-slate-800">📋 ติดตามสถานะคำร้องของฉัน</div>
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              ตรวจสอบผลการพิจารณา 5 ขั้น และคิวอนุมัติแบบเรียลไทม์
+                            </div>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCategorySelect('faq')}
+                        disabled={isSubmitting}
+                        className="w-full p-3.5 bg-white hover:bg-slate-50 border border-slate-200/80 rounded-2xl shadow-2xs text-left flex items-center justify-between group transition-all active:scale-[0.99] cursor-pointer"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                            <HelpCircle className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <div className="font-bold text-xs sm:text-sm text-slate-800">❓ คำถามที่พบบ่อย (FAQ)</div>
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              วิธีสแกนใบหน้า 468 จุด, ตารางเวลาเข้า-ออก, กฎการอนุมัติ 5 ขั้น
+                            </div>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* FAQ Quick Buttons List */}
+                  {m.faqList && !isApprover && !isGuard && (
+                    <div className="mt-2 space-y-2 w-full max-w-md animate-fadeIn">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSelectFAQ(
+                            'วิธีสแกนใบหน้าเปิดไม้กั้น AI',
+                            'การสแกนใบหน้าเปิดไม้กั้น AI ใช้เทคโนโลยี MediaPipe FaceMesh ตรวจจับ 468 จุดใบหน้า โดยเมื่อคำร้องผ่านการอนุมัติครบ 5 ขั้นแล้ว สามารถเดินมาสแกนที่หน้ากล้อง ณ ป้อม รปภ. ประตู 1 ไม้กั้นจะเปิดอัตโนมัติครับ (มีระบบ Live Trip Mode และกล้องสดตรวจสอบพิกัด GPS ตลอดการเดินทาง)'
+                          )
+                        }
+                        className="w-full p-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-left text-xs text-slate-800 font-medium flex items-center justify-between shadow-2xs cursor-pointer transition-all active:scale-95"
+                      >
+                        <span>🔒 วิธีสแกนใบหน้าเปิดไม้กั้นประตู 1</span>
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSelectFAQ(
+                            'ตารางเวลาอนุญาตให้ออก-เข้าวิทยาลัย',
+                            'ช่วงเวลาที่ได้รับอนุญาตให้ออกนอกสถานศึกษา:\n• ช่วงพักเที่ยง: 12:00 - 13:00 น.\n• ช่วงบ่าย (กรณีมีธุระจำเป็นหรือพบแพทย์ตามนัด): 13:00 - 16:30 น.\nทั้งนี้ต้องผ่านการเห็นชอบจากครูผู้สอนประจำวิชา ครูที่ปรึกษา และงานปกครองครับ'
+                          )
+                        }
+                        className="w-full p-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-left text-xs text-slate-800 font-medium flex items-center justify-between shadow-2xs cursor-pointer transition-all active:scale-95"
+                      >
+                        <span>⏰ ตารางเวลาอนุญาตให้ออก-เข้าวิทยาลัย</span>
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSelectFAQ(
+                            'กฎและขั้นตอนการพิจารณาอนุมัติ 5 ระดับ',
+                            'สายพานการพิจารณาคำร้อง 5 ระดับ:\n1. ครูประจำวิชา (ตรวจสอบเวลาเรียน)\n2. ครูที่ปรึกษา (รับทราบและยืนยัน)\n3. หัวหน้าแผนกวิชา (พิจารณาความเหมาะสม)\n4. เจ้าหน้าที่งานปกครอง (ตรวจสอบระเบียบวินัย)\n5. รองผู้อำนวยการฯ (อนุมัติขั้นสุดท้าย)\nเมื่ออนุมัติครบ ระบบจะส่งสิทธิ์ไปยังไม้กั้น AI ป้อม รปภ. ทันทีครับ'
+                          )
+                        }
+                        className="w-full p-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-left text-xs text-slate-800 font-medium flex items-center justify-between shadow-2xs cursor-pointer transition-all active:scale-95"
+                      >
+                        <span>🛡️ กฎและขั้นตอนการอนุมัติ 5 ระดับ</span>
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleReturnToMainMenu}
+                        className="w-full p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-center text-xs font-semibold cursor-pointer transition-all"
+                      >
+                        <span>🏠 กลับสู่เมนูหลัก</span>
+                      </button>
                     </div>
                   )}
 
@@ -1282,28 +1434,83 @@ function ChatContent() {
                         )}
                       </div>
 
-                      {/* Display attached image thumbnail in Card if exists */}
-                      {m.requestCard.attachment_path && (
-                        <div
-                          onClick={() => setPreviewModalUrl(m.requestCard!.attachment_path!)}
-                          className="bg-white/10 hover:bg-white/15 cursor-pointer rounded-2xl p-2.5 border border-white/20 transition-all flex items-center gap-3"
-                        >
-                          <img
-                            src={m.requestCard.attachment_path}
-                            alt="รูปหลักฐานที่แนบ"
-                            className="w-12 h-12 object-cover rounded-xl bg-white shrink-0 border border-white/30"
-                          />
-                          <div className="text-[11px] text-white leading-tight">
-                            <span className="font-bold flex items-center gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
-                              <span>แนบหลักฐานเรียบร้อย</span>
-                            </span>
-                            <span className="text-[10px] text-white/80 block mt-0.5">
-                              คลิกเพื่อเปิดดูภาพเต็มที่ส่งให้ครูผู้ตรวจ
-                            </span>
+                      {/* 3-Point Evidence Timeline ([9.4] & [9.8]) */}
+                      <div className="bg-white/10 rounded-2xl p-3 border border-white/15 space-y-2">
+                        <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-white/15 pb-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-cyan-300" />
+                          <span>ไทม์ไลน์หลักฐาน 3 จุด (3-Point Evidence Timeline)</span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 pt-1">
+                          {/* Point 1: Submission Attachment */}
+                          <div className="bg-black/20 rounded-xl p-2 border border-white/10 text-center flex flex-col items-center justify-between">
+                            <div className="text-[10px] font-bold text-blue-100 mb-1">1. แนบคำร้อง</div>
+                            {m.requestCard.attachment_path ? (
+                              <div
+                                onClick={() => setPreviewModalUrl(m.requestCard!.attachment_path!)}
+                                className="cursor-pointer group relative"
+                              >
+                                <img
+                                  src={m.requestCard.attachment_path}
+                                  alt="หลักฐานแนบคำร้อง"
+                                  className="w-12 h-12 object-cover rounded-lg border border-white/30 group-hover:opacity-80 transition-opacity bg-white"
+                                />
+                                <span className="block text-[8px] text-emerald-300 font-bold mt-1">แนบแล้ว ✓</span>
+                              </div>
+                            ) : (
+                              <div className="w-12 h-12 rounded-lg bg-white/5 border border-dashed border-white/20 flex flex-col items-center justify-center text-white/50 text-[9px]">
+                                <span>ไม่มีรูป</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Point 2: Destination Live Camera Check-in */}
+                          <div className="bg-black/20 rounded-xl p-2 border border-white/10 text-center flex flex-col items-center justify-between">
+                            <div className="text-[10px] font-bold text-blue-100 mb-1">2. เช็คอินปลายทาง</div>
+                            {m.requestCard.dest_checkin_photo_path ? (
+                              <div
+                                onClick={() => setPreviewModalUrl(m.requestCard!.dest_checkin_photo_path!)}
+                                className="cursor-pointer group relative"
+                              >
+                                <img
+                                  src={m.requestCard.dest_checkin_photo_path}
+                                  alt="ภาพถ่ายสดเช็คอินปลายทาง"
+                                  className="w-12 h-12 object-cover rounded-lg border border-white/30 group-hover:opacity-80 transition-opacity bg-white"
+                                />
+                                <span className="block text-[8px] text-emerald-300 font-bold mt-1">กล้องสด ✓</span>
+                              </div>
+                            ) : (
+                              <div className="w-12 h-12 rounded-lg bg-white/5 border border-dashed border-white/20 flex flex-col items-center justify-center text-white/50 text-[9px]">
+                                <span>{m.requestCard.checkin_at ? 'เช็คอินแล้ว' : 'รอเดินทาง'}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Point 3: Return Live Camera Check-in */}
+                          <div className="bg-black/20 rounded-xl p-2 border border-white/10 text-center flex flex-col items-center justify-between">
+                            <div className="text-[10px] font-bold text-blue-100 mb-1">3. รายงานตัวกลับ</div>
+                            {m.requestCard.return_checkin_photo_path ? (
+                              <div
+                                onClick={() => setPreviewModalUrl(m.requestCard!.return_checkin_photo_path!)}
+                                className="cursor-pointer group relative"
+                              >
+                                <img
+                                  src={m.requestCard.return_checkin_photo_path}
+                                  alt="ภาพถ่ายสดรายงานตัวกลับ"
+                                  className="w-12 h-12 object-cover rounded-lg border border-white/30 group-hover:opacity-80 transition-opacity bg-white"
+                                />
+                                <span className="block text-[8px] text-emerald-300 font-bold mt-1">กล้องสด ✓</span>
+                              </div>
+                            ) : (
+                              <div className="w-12 h-12 rounded-lg bg-white/5 border border-dashed border-white/20 flex flex-col items-center justify-center text-white/50 text-[9px]">
+                                <span>
+                                  {m.requestCard.is_return_required === 0 ? 'ไม่กลับ' : m.requestCard.return_arrived_at ? 'รายงานตัวแล้ว' : 'รอรายงาน'}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
-                      )}
+                      </div>
 
                       <div className="bg-white/10 rounded-2xl p-3 border border-white/15 space-y-2">
                         <div className="flex items-center justify-between text-xs text-white/90">
@@ -1467,22 +1674,31 @@ function ChatContent() {
         );
       })}
 
-        {/* Home Pin Picker Card in Chat */}
-        {!isApprover && (missingSlots.includes('home_pin') || (currentSlots.destination_name === 'บ้านพักอาศัย' && !currentSlots.destination_lat)) && (
+        {/* Interactive Leaflet Map Picker inside chat ([9.4] Pillar 2) */}
+        {!isApprover && !isGuard && showMapPicker && (
           <div className="my-2 px-1 animate-fadeIn">
             <ChatMapPicker
               onSelect={(loc) => {
                 const updated = {
                   ...currentSlots,
-                  destination_name: 'บ้านพักอาศัย',
+                  destination_name: loc.name,
                   destination_lat: loc.lat,
                   destination_lng: loc.lng,
-                  is_return_required: 0,
+                  is_return_required: loc.isReturnRequired,
                 };
                 setCurrentSlots(updated);
-                setMissingSlots((prev) => prev.filter((s) => s !== 'home_pin'));
-                handleSend(undefined, false, undefined, `ปักหมุดบ้านพักอาศัยเรียบร้อยครับ (พิกัด ${loc.lat}, ${loc.lng})`);
+                setShowMapPicker(false);
+                handleSend(
+                  undefined,
+                  false,
+                  undefined,
+                  `เลือกสถานที่ปลายทางบนแผนที่: ${loc.name} (พิกัด ${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}) ${loc.isReturnRequired === 1 ? 'แบบไปและกลับเข้าวิทยาลัย' : 'แบบกลับบ้านพักไม่กลับเข้าวิทยาลัย'}`
+                );
               }}
+              onCancel={() => setShowMapPicker(false)}
+              initialLat={currentSlots.destination_lat || undefined}
+              initialLng={currentSlots.destination_lng || undefined}
+              initialName={currentSlots.destination_name || 'สถานที่ปลายทาง'}
             />
           </div>
         )}
@@ -1533,6 +1749,197 @@ function ChatContent() {
         </div>
       )}
 
+      {/* Dynamic Context-Aware Quick Chips Bar ([9.4] Pillar 2) */}
+      {!isApprover && !isGuard && (
+        <div className="px-3 py-2 bg-[#F4F7FB] border-t border-slate-200/70 overflow-x-auto no-scrollbar">
+          <div className="w-full max-w-4xl mx-auto flex items-center gap-1.5 shrink-0">
+            {/* Reset to main menu button */}
+            <button
+              type="button"
+              onClick={handleReturnToMainMenu}
+              className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-full text-[11px] font-semibold flex items-center gap-1 shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
+              title="กลับสู่หน้าเลือกหมวดหมู่หลัก"
+            >
+              <span>🏠 เมนูหลัก</span>
+            </button>
+
+            {/* Dynamic chips based on current step */}
+            {!currentSlots.category ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleSelectCategoryPill('medical')}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-full text-[11px] font-semibold flex items-center gap-1 shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
+                >
+                  <span>🏥 พบแพทย์ / ป่วย</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectCategoryPill('personal')}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-full text-[11px] font-semibold flex items-center gap-1 shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
+                >
+                  <span>🧳 ธุระส่วนตัว</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectCategoryPill('department')}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold flex items-center gap-1 shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
+                >
+                  <span>📁 ธุระแผนกวิชา</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectCategoryPill('parent_pickup')}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-full text-[11px] font-semibold flex items-center gap-1 shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
+                >
+                  <span>🚗 ผู้ปกครองมารับ</span>
+                </button>
+              </>
+            ) : !currentSlots.destination_name ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowMapPicker(true)}
+                  className="px-3.5 py-1.5 bg-[#0077D7] hover:bg-[#0066CC] text-white rounded-full text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-xs cursor-pointer transition-all active:scale-95"
+                >
+                  <MapPin className="w-3.5 h-3.5" />
+                  <span>📍 เลือกบนแผนที่ Leaflet</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSend(undefined, false, undefined, 'โรงพยาบาลองครักษ์')}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
+                >
+                  <span>🏥 รพ.องครักษ์</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSend(undefined, false, undefined, 'ตลาดองครักษ์')}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
+                >
+                  <span>🛍️ ตลาดองครักษ์</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSend(undefined, false, undefined, 'บ้านพักอาศัย (คลอง 15)')}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
+                >
+                  <span>🏠 คลอง 15</span>
+                </button>
+              </>
+            ) : !currentSlots.allowed_start_time ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleSend(undefined, false, undefined, 'ขอออกช่วงพักเที่ยง 12:00 - ไม่กลับเข้าวิทยาลัยครับ')}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
+                >
+                  <span>⏰ 12:00 - ไม่กลับ</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSend(undefined, false, undefined, 'ขอออกช่วง 12:00 - 13:00 น. ครับ')}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
+                >
+                  <span>⏰ 12:00 - 13:00 น.</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSend(undefined, false, undefined, 'ขอออกช่วง 13:00 - 16:30 น. ครับ')}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
+                >
+                  <span>⏰ 13:00 - 16:30 น.</span>
+                </button>
+              </>
+            ) : !currentSlots.attachment_path && askAttachmentNow ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3.5 py-1.5 bg-[#0077D7] hover:bg-[#0066CC] text-white rounded-full text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-xs cursor-pointer transition-all active:scale-95"
+                >
+                  <Paperclip className="w-3.5 h-3.5" />
+                  <span>📎 อัปโหลดรูปใบนัด / แชทผู้ปกครอง</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSend(undefined, true)}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
+                >
+                  <span>⏩ ไม่มีเอกสารแนบ (ข้าม)</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleSend(undefined, false, undefined, 'ยืนยันยื่นคำร้องครับ')}
+                  disabled={isSubmitting}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-xs cursor-pointer transition-all active:scale-95"
+                >
+                  <span>✓ ยืนยันยื่นคำร้อง</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetChat}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
+                >
+                  <span>✕ เริ่มต้นใหม่</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Approver Quick Action Bar */}
+      {isApprover && (
+        <div className="px-3 py-1.5 bg-slate-900 text-white border-t border-slate-800">
+          <div className="w-full max-w-4xl mx-auto flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            <span className="text-[10px] font-bold text-emerald-400 shrink-0">คำสั่งครูด่วน:</span>
+
+            {pendingRequests.length > 0 && (
+              <button
+                type="button"
+                onClick={() => handleSend(undefined, false, undefined, 'อนุมัติครับ')}
+                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-full text-[11px] font-bold shrink-0 shadow-sm flex items-center gap-1 transition-all cursor-pointer"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>✓ อนุมัติคำร้องล่าสุด</span>
+              </button>
+            )}
+
+            <Link
+              href="/approver"
+              className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-full text-[11px] font-medium shrink-0 flex items-center gap-1 transition-all"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-blue-300" />
+              <span>ดูรายการทั้งหมด ({pendingRequests.length})</span>
+            </Link>
+
+            <button
+              type="button"
+              onClick={() => handleSend(undefined, false, undefined, 'สรุปคำร้องที่รอการอนุมัติวันนี้')}
+              className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-full text-[11px] font-medium shrink-0 transition-all cursor-pointer"
+            >
+              📊 สรุปยอดคำร้อง
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Bottom Input Field Bar */}
       <div className="p-3 bg-white border-t border-slate-200/80 sticky bottom-16 z-30">
         <div className="w-full max-w-4xl mx-auto">
@@ -1541,7 +1948,7 @@ function ChatContent() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-2 text-slate-500 hover:text-[#0066CC] transition-colors relative"
+              className="p-2 text-slate-500 hover:text-[#0066CC] transition-colors relative cursor-pointer"
               title="แนบรูปถ่ายใบนัดแพทย์หรือแชทผู้ปกครองจากเครื่อง"
             >
               <Paperclip className="w-5 h-5 -rotate-45" />
@@ -1555,7 +1962,7 @@ function ChatContent() {
             placeholder={
               isApprover
                 ? 'พิมพ์ "อนุมัติ", "ไม่อนุมัติ" หรือสอบถามระบบได้เลย...'
-                : 'พิมพ์คุยกับน้องเกต AI หรือแตะเลือกหัวข้อด้านบน...'
+                : 'พิมพ์คุยกับน้องเกต AI หรือเลือกหัวขอด้านบน...'
             }
             className="flex-1 py-2.5 px-4 bg-slate-100 border border-slate-200/60 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC]/20 focus:border-[#0066CC] transition-all"
           />
@@ -1565,7 +1972,7 @@ function ChatContent() {
             disabled={!input.trim() || isSubmitting}
             className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-all ${
               input.trim()
-                ? 'bg-[#0077D7] hover:bg-[#0066CC] text-white shadow-sm'
+                ? 'bg-[#0077D7] hover:bg-[#0066CC] text-white shadow-sm cursor-pointer'
                 : 'bg-slate-100 text-slate-400'
             }`}
           >

@@ -58,6 +58,12 @@ export function getDb(): DatabaseSync {
     dbInstance.exec(`ALTER TABLE leave_requests ADD COLUMN current_lng REAL;`);
   } catch {}
   try {
+    dbInstance.exec(`ALTER TABLE leave_requests ADD COLUMN dest_checkin_photo_path TEXT;`);
+  } catch {}
+  try {
+    dbInstance.exec(`ALTER TABLE leave_requests ADD COLUMN return_checkin_photo_path TEXT;`);
+  } catch {}
+  try {
     dbInstance.exec(`ALTER TABLE users ADD COLUMN home_lat REAL;`);
   } catch {}
   try {

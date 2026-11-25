@@ -40,6 +40,7 @@ export async function POST(
       lng,
       speed,
       heading,
+      photo_url,
     } = body;
 
     const request = queryOne<LeaveRequest>(`SELECT * FROM leave_requests WHERE id = ?`, id);
@@ -73,9 +74,10 @@ export async function POST(
             checkin_lng = ?,
             checkin_at = ?,
             checkin_verified = 1,
+            dest_checkin_photo_path = COALESCE(?, dest_checkin_photo_path),
             updated_at = ?
         WHERE id = ?
-      `, nowStr, lat || request.destination_lat, lng || request.destination_lng, nowStr, nowStr, request.id);
+      `, nowStr, lat || request.destination_lat, lng || request.destination_lng, nowStr, photo_url || null, nowStr, request.id);
     } else if (action === 'start_return') {
       // Returning to college
       execute(`
@@ -91,9 +93,10 @@ export async function POST(
         SET trip_stage = 'completed',
             overall_status = 'returned',
             return_arrived_at = ?,
+            return_checkin_photo_path = COALESCE(?, return_checkin_photo_path),
             updated_at = ?
         WHERE id = ?
-      `, nowStr, nowStr, request.id);
+      `, nowStr, photo_url || null, nowStr, request.id);
     } else if (action === 'complete_trip') {
       // One-way Trip complete (e.g. reached home)
       execute(`
@@ -105,9 +108,10 @@ export async function POST(
             checkin_lng = ?,
             checkin_at = ?,
             checkin_verified = 1,
+            dest_checkin_photo_path = COALESCE(?, dest_checkin_photo_path),
             updated_at = ?
         WHERE id = ?
-      `, nowStr, lat || request.destination_lat, lng || request.destination_lng, nowStr, nowStr, request.id);
+      `, nowStr, lat || request.destination_lat, lng || request.destination_lng, nowStr, photo_url || null, nowStr, request.id);
     }
 
     const updated = queryOne<LeaveRequest>(`

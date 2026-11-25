@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS leave_requests (
     checkin_at TEXT,
     checkin_distance_m REAL,
     checkin_verified INTEGER NOT NULL DEFAULT 0,
+    dest_checkin_photo_path TEXT,
+    return_checkin_photo_path TEXT,
     
     is_return_required INTEGER NOT NULL DEFAULT 1,
     trip_stage TEXT DEFAULT 'not_started' CHECK(trip_stage IN ('not_started', 'heading_to_dest', 'at_dest', 'heading_back', 'completed')),

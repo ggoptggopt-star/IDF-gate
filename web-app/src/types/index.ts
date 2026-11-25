@@ -82,12 +82,14 @@ export interface LeaveRequest {
   current_step: number;
   overall_status: LeaveStatus;
   
-  // GPS Destination Check-in
+  // GPS Destination Check-in & Live Photos
   checkin_lat?: number | null;
   checkin_lng?: number | null;
   checkin_at?: string | null;
   checkin_distance_m?: number | null;
   checkin_verified?: number;
+  dest_checkin_photo_path?: string | null;
+  return_checkin_photo_path?: string | null;
 
   // Rider-Style Trip Tracking
   is_return_required?: number;
