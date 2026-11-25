@@ -63,7 +63,7 @@ interface ChatMessage {
   };
 }
 
-// Preset Capsule Option Sets (In-Chat under AI bubbles)
+// Preset In-Chat Capsule Option Sets
 const MAIN_MENU_OPTIONS: ChatOption[] = [
   { label: '🚪 ขออนุญาตออกนอกวิทยาลัย', actionValue: 'act_leave', variant: 'primary' },
   { label: '📋 ติดตามสถานะคำร้องของฉัน', actionValue: 'act_status', variant: 'default' },
@@ -179,6 +179,7 @@ function ChatContent() {
   const [previewModalUrl, setPreviewModalUrl] = useState<string | null>(null);
   const [geminiApiKey, setGeminiApiKey] = useState<string>('');
   const [showMapPicker, setShowMapPicker] = useState<boolean>(false);
+  const [chatMode, setChatMode] = useState<'menu' | 'leave' | 'faq'>('menu');
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -320,6 +321,7 @@ function ChatContent() {
       setCurrentSlots({});
       setMissingSlots([]);
       setShowMapPicker(false);
+      setChatMode('menu');
     }
   }, [currentUserId]);
 
@@ -327,7 +329,7 @@ function ChatContent() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      if (localStorage.getItem('sgp_chat_clean_v9') !== 'true') {
+      if (localStorage.getItem('sgp_chat_clean_v10') !== 'true') {
         Object.keys(localStorage).forEach((key) => {
           if (key.startsWith('sgp_chat_history_')) {
             try {
@@ -342,12 +344,12 @@ function ChatContent() {
             } catch {}
           }
         });
-        localStorage.setItem('sgp_chat_clean_v9', 'true');
+        localStorage.setItem('sgp_chat_clean_v10', 'true');
       }
     } catch {}
   }, []);
 
-  // Save chat messages and slots to localStorage when updated (Only for current user's messages)
+  // Save chat messages and slots to localStorage when updated
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (messagesUserIdRef.current === currentUserId && messages.length > 0) {
@@ -401,7 +403,7 @@ function ChatContent() {
       };
     }
 
-    // Default / Student View (With Main Menu Capsule Buttons in message)
+    // Default / Student View
     return {
       id: `greet-${Date.now()}`,
       sender: 'bot',
@@ -425,6 +427,7 @@ function ChatContent() {
       setAskAttachmentNow(false);
       setSelectedAttachmentUrl(null);
       setShowMapPicker(false);
+      setChatMode('menu');
       const now = new Date();
       const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -434,7 +437,7 @@ function ChatContent() {
     }
   };
 
-  // Helper: Return to Main Menu (Always accessible)
+  // Helper: Return to Main Menu
   const handleReturnToMainMenu = () => {
     const now = new Date();
     const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -444,6 +447,7 @@ function ChatContent() {
     setCurrentSlots({});
     setMissingSlots([]);
     setAskAttachmentNow(false);
+    setChatMode('menu');
 
     setMessages((prev) => [
       ...prev,
@@ -470,7 +474,7 @@ function ChatContent() {
 
   // Handle In-Chat Capsule Option Click (Self-Disappearing on Select)
   const handleOptionClick = async (messageId: string, opt: ChatOption) => {
-    // 1. Immediately remove buttons from this message so it leaves only pure chat history
+    // 1. Immediately remove buttons from previous messages so it leaves pure chat history
     setMessages((prev) =>
       prev.map((m) => (m.id === messageId ? { ...m, options: undefined } : m))
     );
@@ -487,6 +491,7 @@ function ChatContent() {
 
     // B. Main Menu Action: Request Leave
     if (opt.actionValue === 'act_leave') {
+      setChatMode('leave');
       setMessages((prev) => [
         ...prev,
         {
@@ -513,6 +518,7 @@ function ChatContent() {
 
     // C. Main Menu Action: Check Status
     if (opt.actionValue === 'act_status') {
+      setChatMode('menu');
       setMessages((prev) => [
         ...prev,
         {
@@ -569,6 +575,7 @@ function ChatContent() {
 
     // D. Main Menu Action: FAQ List
     if (opt.actionValue === 'act_faq') {
+      setChatMode('faq');
       setMessages((prev) => [
         ...prev,
         {
@@ -595,6 +602,7 @@ function ChatContent() {
 
     // E. Category Selection
     if (opt.actionValue.startsWith('cat_')) {
+      setChatMode('leave');
       let cat: 'medical' | 'personal' | 'department' | 'parent_pickup' = 'personal';
       let catName = 'ธุระส่วนตัว';
       if (opt.actionValue === 'cat_medical') { cat = 'medical'; catName = 'พบแพทย์ / ป่วย'; }
@@ -857,6 +865,46 @@ function ChatContent() {
       ]);
       return;
     }
+  };
+
+  // Helper: Get active options for a message bubble
+  // Rule: ONLY the latest message in the conversation displays buttons! Old messages are clean.
+  const getOptionsForMessage = (m: ChatMessage, index: number): ChatOption[] | null => {
+    if (isApprover || isGuard || m.sender !== 'bot') return null;
+
+    // Only render options on the very latest message
+    const isLatest = index === messages.length - 1;
+    if (!isLatest) return null;
+
+    // 1. If explicit options are attached
+    if (m.options && m.options.length > 0) {
+      return m.options;
+    }
+
+    // 2. If at FAQ mode
+    if (chatMode === 'faq') {
+      return FAQ_OPTIONS;
+    }
+
+    // 3. If at Leave mode
+    if (chatMode === 'leave') {
+      if (!currentSlots.category) {
+        return CATEGORY_OPTIONS;
+      }
+      if (!currentSlots.destination_name) {
+        return DESTINATION_OPTIONS;
+      }
+      if (!currentSlots.allowed_start_time) {
+        return TIME_OPTIONS;
+      }
+      if (askAttachmentNow || !currentSlots.attachment_path) {
+        return ATTACHMENT_OPTIONS;
+      }
+      return CONFIRM_OPTIONS;
+    }
+
+    // 4. Default: Main Menu Options
+    return MAIN_MENU_OPTIONS;
   };
 
   // Fetch requests based on role with live polling & persistent clean chat history
@@ -1207,6 +1255,15 @@ function ChatContent() {
     if (!userText && !attachUrl && !skipAttachment) return;
     if (isSubmitting && !overrideAttachmentUrl) return;
 
+    // Detect chatMode switches from userText
+    if (/ขออนุญาตออก|ขอออก|ยื่นคำร้อง/i.test(userText)) {
+      setChatMode('leave');
+    } else if (/เมนูหลัก|หน้าหลัก/i.test(userText)) {
+      setChatMode('menu');
+    } else if (/คำถาม|faq|วิธีสแกน|ตารางเวลา/i.test(userText)) {
+      setChatMode('faq');
+    }
+
     if (/เลือกบนแผนที่|ปักหมุด|เปิดแผนที่|พิกัด/i.test(userText) && !isApprover) {
       setShowMapPicker(true);
     }
@@ -1334,6 +1391,7 @@ function ChatContent() {
           setMissingSlots([]);
           setSelectedAttachmentUrl(null);
           setShowMapPicker(false);
+          setChatMode('menu');
           nextOptions = [{ label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' }];
 
           playNotificationSound();
@@ -1488,6 +1546,7 @@ function ChatContent() {
                 setCurrentSlots({});
                 setMissingSlots([]);
                 setAskAttachmentNow(false);
+                setChatMode('menu');
               }}
               className="text-[10px] text-blue-600 hover:underline font-semibold shrink-0 cursor-pointer"
             >
@@ -1503,6 +1562,8 @@ function ChatContent() {
         {messages.map((m, index) => {
           const prev = index > 0 ? messages[index - 1] : undefined;
           const divider = getMessengerDivider(m, prev);
+          const activeOptions = getOptionsForMessage(m, index);
+
           if (m.sender === 'student') {
             return (
               <React.Fragment key={m.id}>
@@ -1567,10 +1628,10 @@ function ChatContent() {
                         </span>
                       )}
 
-                      {/* In-Chat Capsule Option Buttons (Horizontal wrapping under AI message) */}
-                      {m.options && m.options.length > 0 && !isApprover && !isGuard && (
+                      {/* In-Chat Capsule Option Buttons (Shown ONLY on the active message under AI bubble) */}
+                      {activeOptions && activeOptions.length > 0 && (
                         <div className="flex flex-wrap items-center gap-2 mt-2.5 pt-2 border-t border-slate-100 select-none animate-fadeIn">
-                          {m.options.map((opt, oIdx) => (
+                          {activeOptions.map((opt, oIdx) => (
                             <button
                               key={oIdx}
                               type="button"
