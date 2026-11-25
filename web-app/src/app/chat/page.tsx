@@ -611,6 +611,7 @@ function ChatContent() {
 
       const updated = { ...currentSlots, category: cat, reason: catName };
       setCurrentSlots(updated);
+      setShowMapPicker(true);
 
       setMessages((prev) => [
         ...prev,
@@ -625,12 +626,12 @@ function ChatContent() {
         {
           id: `bot-dest-${Date.now()}`,
           sender: 'bot',
-          text: 'รับทราบหมวดหมู่เรียบร้อยครับ กรุณาระบุสถานที่ปลายทางที่ต้องการเดินทางไป (เลือกบนแผนที่ Leaflet หรือแตะเลือกสถานที่ด้านล่าง):',
+          text: 'รับทราบหมวดหมู่เรียบร้อยครับ กรุณาระบุพิกัดสถานที่ปลายทางและช่วงเวลาเดินทางในแผนที่ Leaflet ด้านล่างได้เลยครับ:',
           time: nowTime,
           timestamp: Date.now() + 50,
           dateStr: todayStr,
           poweredBy: 'Google Gemini AI',
-          options: DESTINATION_OPTIONS,
+          options: [{ label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' }],
         },
       ]);
       return;
@@ -891,11 +892,8 @@ function ChatContent() {
       if (!currentSlots.category) {
         return CATEGORY_OPTIONS;
       }
-      if (!currentSlots.destination_name) {
-        return DESTINATION_OPTIONS;
-      }
-      if (!currentSlots.allowed_start_time) {
-        return TIME_OPTIONS;
+      if (!currentSlots.destination_name || !currentSlots.allowed_start_time) {
+        return [{ label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' }];
       }
       if (askAttachmentNow || !currentSlots.attachment_path) {
         return ATTACHMENT_OPTIONS;
@@ -1374,10 +1372,9 @@ function ChatContent() {
         if (!isApprover && !isGuard) {
           if (!newSlots.category) {
             nextOptions = CATEGORY_OPTIONS;
-          } else if (!newSlots.destination_name) {
-            nextOptions = DESTINATION_OPTIONS;
-          } else if (!newSlots.allowed_start_time) {
-            nextOptions = TIME_OPTIONS;
+          } else if (!newSlots.destination_name || !newSlots.allowed_start_time) {
+            setShowMapPicker(true);
+            nextOptions = [{ label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' }];
           } else if (data.ask_attachment_now || (!newSlots.attachment_path && !skipAttachment)) {
             nextOptions = ATTACHMENT_OPTIONS;
           } else {
@@ -1936,20 +1933,47 @@ function ChatContent() {
                   destination_lat: loc.lat,
                   destination_lng: loc.lng,
                   is_return_required: loc.isReturnRequired,
+                  allowed_start_time: loc.startTime,
+                  allowed_end_time: loc.endTime,
                 };
                 setCurrentSlots(updated);
                 setShowMapPicker(false);
-                handleSend(
-                  undefined,
-                  false,
-                  undefined,
-                  `เลือกสถานที่ปลายทางบนแผนที่: ${loc.name} (พิกัด ${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}) ${loc.isReturnRequired === 1 ? 'แบบไปและกลับเข้าวิทยาลัย' : 'แบบกลับบ้านพักไม่กลับเข้าวิทยาลัย'}`
-                );
+                setAskAttachmentNow(true);
+
+                const now = new Date();
+                const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+                const summaryText = `📍 ${loc.name} • เวลา ${loc.startTime} - ${loc.endTime === 'ไม่กลับ' ? 'ไม่กลับเข้าวิทยาลัย' : loc.endTime + ' น.'} (${loc.isReturnRequired === 1 ? 'ต้องกลับวิทยาลัย' : 'กลับบ้านเลย'})`;
+
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: `stu-loc-time-${Date.now()}`,
+                    sender: 'student',
+                    text: summaryText,
+                    time: nowTime,
+                    timestamp: Date.now(),
+                    dateStr: todayStr,
+                  },
+                  {
+                    id: `bot-attach-${Date.now()}`,
+                    sender: 'bot',
+                    text: `บันทึกพิกัดและช่วงเวลาเรียบร้อยครับ ✅\n(สถานที่: ${loc.name} | เวลา: ${loc.startTime} - ${loc.endTime === 'ไม่กลับ' ? 'ไม่กลับเข้าวิทยาลัย' : loc.endTime + ' น.'})\n\nท่านมีเอกสารหลักฐาน เช่น ใบนัดแพทย์ หรือแชทผู้ปกครอง ที่ต้องการแนบเพิ่มเติมหรือไม่ครับ?`,
+                    time: nowTime,
+                    timestamp: Date.now() + 50,
+                    dateStr: todayStr,
+                    poweredBy: 'Google Gemini AI',
+                    options: ATTACHMENT_OPTIONS,
+                  },
+                ]);
               }}
               onCancel={() => setShowMapPicker(false)}
               initialLat={currentSlots.destination_lat || undefined}
               initialLng={currentSlots.destination_lng || undefined}
-              initialName={currentSlots.destination_name || 'สถานที่ปลายทาง'}
+              initialName={currentSlots.destination_name || 'โรงพยาบาลองครักษ์'}
+              initialStartTime={currentSlots.allowed_start_time || '12:00'}
+              initialEndTime={currentSlots.allowed_end_time || '13:00'}
             />
           </div>
         )}

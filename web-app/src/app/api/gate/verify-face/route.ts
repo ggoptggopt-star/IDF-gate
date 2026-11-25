@@ -60,7 +60,32 @@ export async function POST(req: NextRequest) {
     if (direction === 'exit') {
       // Exit scan requirements:
       if (request && request.overall_status === 'approved' && request.synced_to_gate === 1) {
-        isAuthorized = true;
+        // Enforce scan time rule: Can only scan when current time reaches allowed_start_time
+        if (request.allowed_start_time) {
+          const now = new Date();
+          const bkkHours = (now.getUTCHours() + 7) % 24;
+          const bkkMinutes = now.getUTCMinutes();
+          const currentTotalMinutes = bkkHours * 60 + bkkMinutes;
+
+          const timeParts = request.allowed_start_time.split(':');
+          if (timeParts.length >= 2) {
+            const startHour = parseInt(timeParts[0], 10);
+            const startMin = parseInt(timeParts[1], 10);
+            const startTotalMinutes = startHour * 60 + startMin;
+
+            // Allow scanning starting 5 minutes before scheduled start time for gate queue buffer
+            if (currentTotalMinutes < startTotalMinutes - 5) {
+              isAuthorized = false;
+              reasonText = `ยังไม่ถึงเวลาที่ขออนุญาต (สแกนได้ตั้งแต่เวลา ${request.allowed_start_time} น.)`;
+            } else {
+              isAuthorized = true;
+            }
+          } else {
+            isAuthorized = true;
+          }
+        } else {
+          isAuthorized = true;
+        }
       } else if (!request) {
         reasonText = 'ไม่พบประวัติการยื่นคำร้องขออนุญาตออกนอกสถานศึกษา';
       } else if (request.overall_status === 'completed_exit') {

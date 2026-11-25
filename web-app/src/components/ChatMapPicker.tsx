@@ -1,14 +1,38 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Home, CheckCircle2, Crosshair, X, Building2, Store } from 'lucide-react';
+import {
+  MapPin,
+  Search,
+  Crosshair,
+  X,
+  CheckCircle2,
+  Clock,
+  Compass,
+  Building2,
+  Store,
+  ChevronDown,
+  Loader2,
+  AlertCircle
+} from 'lucide-react';
+
+export interface LocationTimeResult {
+  name: string;
+  lat: number;
+  lng: number;
+  isReturnRequired: number;
+  startTime: string;
+  endTime: string;
+}
 
 interface ChatMapPickerProps {
-  onSelect: (location: { name: string; lat: number; lng: number; isReturnRequired: number }) => void;
+  onSelect: (result: LocationTimeResult) => void;
   onCancel?: () => void;
   initialLat?: number;
   initialLng?: number;
   initialName?: string;
+  initialStartTime?: string;
+  initialEndTime?: string;
 }
 
 // College coordinates: OICEC (วิทยาลัยการอาชีพองครักษ์)
@@ -19,8 +43,16 @@ const OICEC_LNG = 100.9985;
 const DESTINATION_PRESETS = [
   { name: 'โรงพยาบาลองครักษ์', lat: 14.1205, lng: 101.0020, icon: '🏥', isReturn: 1 },
   { name: 'ตลาดองครักษ์', lat: 14.1220, lng: 101.0050, icon: '🛍️', isReturn: 1 },
+  { name: 'เซเว่นอีเลฟเว่น หน้า วก.องครักษ์', lat: 14.1275, lng: 100.9995, icon: '🏪', isReturn: 1 },
   { name: 'บ้านพัก (คลอง 15)', lat: 14.1120, lng: 100.9450, icon: '🏠', isReturn: 0 },
   { name: 'บ้านพัก (คลอง 16)', lat: 14.1350, lng: 100.9200, icon: '🏠', isReturn: 0 },
+];
+
+// Preset class time slots
+const TIME_SLOT_PRESETS = [
+  { label: '🍱 พักเที่ยง', start: '12:00', end: '13:00' },
+  { label: '📚 ช่วงบ่าย', start: '13:00', end: '16:30' },
+  { label: '🌅 หลังเลิกเรียน', start: '16:30', end: '18:00' },
 ];
 
 function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -39,12 +71,24 @@ export default function ChatMapPicker({
   onCancel,
   initialLat,
   initialLng,
-  initialName = 'สถานที่ปลายทาง',
+  initialName = 'โรงพยาบาลองครักษ์',
+  initialStartTime = '12:00',
+  initialEndTime = '13:00',
 }: ChatMapPickerProps) {
   const [selectedLat, setSelectedLat] = useState(initialLat || 14.1205);
   const [selectedLng, setSelectedLng] = useState(initialLng || 101.0020);
   const [locationName, setLocationName] = useState(initialName);
   const [isReturn, setIsReturn] = useState(initialName.includes('บ้าน') ? 0 : 1);
+  const [startTime, setStartTime] = useState(initialStartTime);
+  const [endTime, setEndTime] = useState(initialEndTime);
+  const [selectedSlotPreset, setSelectedSlotPreset] = useState<string>('🍱 พักเที่ยง');
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<Array<{ name: string; lat: number; lng: number }>>([]);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
   const [gpsLoading, setGpsLoading] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
 
@@ -74,7 +118,7 @@ export default function ChatMapPicker({
 
       const map = L.map(mapContainerRef.current, {
         center: [selectedLat, selectedLng],
-        zoom: 13,
+        zoom: 14,
         zoomControl: false,
       });
 
@@ -139,11 +183,13 @@ export default function ChatMapPicker({
     };
   }, []);
 
-  const updatePin = (lat: number, lng: number, name: string, returnReq: number) => {
+  const updatePin = (lat: number, lng: number, name: string, returnReq?: number) => {
     setSelectedLat(lat);
     setSelectedLng(lng);
     setLocationName(name);
-    setIsReturn(returnReq);
+    if (returnReq !== undefined) {
+      setIsReturn(returnReq);
+    }
 
     if (mapInstanceRef.current && markerRef.current) {
       markerRef.current.setLatLng([lat, lng]);
@@ -172,6 +218,79 @@ export default function ChatMapPicker({
     );
   };
 
+  // Search Handler
+  const handleSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) return;
+
+    setIsSearching(true);
+    setSearchError(null);
+    setSearchResults([]);
+
+    // 1. Check local presets first
+    const matchedPresets = DESTINATION_PRESETS.filter((p) =>
+      p.name.toLowerCase().includes(query.toLowerCase())
+    );
+
+    try {
+      // 2. Query OpenStreetMap Nominatim with Ongkharak / Nakhon Nayok bias
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+        query
+      )}&countrycodes=th&limit=5`;
+
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'Accept-Language': 'th,en' },
+      });
+      clearTimeout(timeoutId);
+
+      const data = await res.json();
+      const onlineResults = Array.isArray(data)
+        ? data.map((item: any) => ({
+            name: item.display_name.split(',')[0] || item.display_name,
+            lat: parseFloat(item.lat),
+            lng: parseFloat(item.lon),
+          }))
+        : [];
+
+      const combined = [
+        ...matchedPresets.map((p) => ({ name: p.name, lat: p.lat, lng: p.lng })),
+        ...onlineResults,
+      ];
+
+      if (combined.length > 0) {
+        setSearchResults(combined);
+        // Automatically jump to first match
+        const first = combined[0];
+        updatePin(first.lat, first.lng, first.name);
+      } else {
+        setSearchError('ไม่พบสถานที่นี้ ลองระบุชื่อให้กระชับขึ้น หรือแตะเลื่อนหมุดบนแผนที่ได้โดยตรงครับ');
+      }
+    } catch (err) {
+      console.warn('Search error or timeout:', err);
+      if (matchedPresets.length > 0) {
+        setSearchResults(matchedPresets);
+        updatePin(matchedPresets[0].lat, matchedPresets[0].lng, matchedPresets[0].name);
+      } else {
+        // Fallback: If search failed, still apply typed name and allow pinning on map
+        setLocationName(query);
+        setSearchError('ไม่สามารถเชื่อมต่อระบบค้นหาได้ แต่คุณสามารถเลื่อนหมุดบนแผนที่ไปยังตำแหน่งที่ต้องการได้เลยครับ');
+      }
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleApplyPresetSlot = (preset: typeof TIME_SLOT_PRESETS[0]) => {
+    setSelectedSlotPreset(preset.label);
+    setStartTime(preset.start);
+    setEndTime(preset.end);
+  };
+
   const distance = calculateDistanceKm(OICEC_LAT, OICEC_LNG, selectedLat, selectedLng);
 
   const handleConfirm = () => {
@@ -181,6 +300,8 @@ export default function ChatMapPicker({
       lat: Number(selectedLat.toFixed(5)),
       lng: Number(selectedLng.toFixed(5)),
       isReturnRequired: isReturn,
+      startTime: startTime || '12:00',
+      endTime: isReturn === 1 ? (endTime || '13:00') : 'ไม่กลับ',
     });
   };
 
@@ -191,9 +312,9 @@ export default function ChatMapPicker({
           <CheckCircle2 className="w-5 h-5" />
         </div>
         <div>
-          <p className="font-semibold text-emerald-950">บันทึกพิกัดสถานที่เรียบร้อยแล้ว ✓</p>
+          <p className="font-semibold text-emerald-950">บันทึกพิกัดและช่วงเวลาเรียบร้อยแล้ว ✓</p>
           <p className="text-[11px] text-emerald-700">
-            {locationName} (ระยะห่างจาก วก.องครักษ์ {distance} กม.) • {isReturn === 0 ? 'กรณีไม่กลับเข้าวิทยาลัย' : 'กรณีต้องกลับเข้าวิทยาลัย'}
+            {locationName} ({distance} กม.) • เวลา {startTime} น. - {isReturn === 1 ? `${endTime} น.` : 'ไม่กลับเข้าวิทยาลัย'}
           </p>
         </div>
       </div>
@@ -201,21 +322,22 @@ export default function ChatMapPicker({
   }
 
   return (
-    <div className="bg-white border border-blue-200/80 rounded-2xl p-3 my-2 shadow-md text-xs text-slate-800 space-y-2.5">
-      <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-        <div className="flex items-center gap-1.5 font-bold text-blue-900">
-          <MapPin className="w-4 h-4 text-rose-500" />
-          <span>ปักหมุดระบุตำแหน่งปลายทาง (Interactive Map)</span>
+    <div className="bg-white border border-blue-200/90 rounded-2xl p-3.5 my-2 shadow-lg text-xs text-slate-800 space-y-3 animate-fadeIn">
+      {/* Header */}
+      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+        <div className="flex items-center gap-1.5 font-bold text-blue-950">
+          <MapPin className="w-4 h-4 text-rose-500 shrink-0" />
+          <span>ระบุพิกัดสถานที่และเวลาเดินทาง (Leaflet GPS)</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+          <span className="text-[10px] bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full font-semibold border border-blue-100">
             {distance} กม. จากวิทยาลัย
           </span>
           {onCancel && (
             <button
               type="button"
               onClick={onCancel}
-              className="text-slate-400 hover:text-slate-600 p-0.5"
+              className="text-slate-400 hover:text-slate-600 p-0.5 transition-colors"
               title="ปิดแผนที่"
             >
               <X className="w-4 h-4" />
@@ -224,20 +346,86 @@ export default function ChatMapPicker({
         </div>
       </div>
 
-      <p className="text-[11px] text-slate-600 leading-tight">
-        แตะเลือกบนแผนที่ หรือเลื่อนหมุดสีแดงไปยังจุดหมายที่ต้องการเดินทางไป:
-      </p>
+      {/* 1. Search Box */}
+      <div className="space-y-1.5">
+        <form onSubmit={handleSearch} className="flex items-center gap-1.5">
+          <div className="relative flex-1">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="พิมพ์ค้นหาสถานที่ เช่น เซเว่น, คลินิก, ร้านค้า..."
+              className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:outline-none text-[11px] text-slate-800 placeholder:text-slate-400"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setSearchResults([]);
+                  setSearchError(null);
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          <button
+            type="submit"
+            disabled={isSearching || !searchQuery.trim()}
+            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 text-white font-medium text-[11px] flex items-center gap-1 transition-all shrink-0 shadow-xs"
+          >
+            {isSearching ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Search className="w-3.5 h-3.5" />
+            )}
+            <span>ค้นหา</span>
+          </button>
+        </form>
 
-      {/* Preset Buttons */}
+        {/* Search Error Message */}
+        {searchError && (
+          <p className="text-[10px] text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 flex items-center gap-1">
+            <AlertCircle className="w-3 h-3 shrink-0" />
+            <span>{searchError}</span>
+          </p>
+        )}
+
+        {/* Search Results Dropdown Chips */}
+        {searchResults.length > 1 && (
+          <div className="flex flex-wrap gap-1 pt-0.5">
+            <span className="text-[10px] text-slate-500 font-medium self-center">ผลการค้นหา:</span>
+            {searchResults.slice(0, 4).map((res, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => {
+                  updatePin(res.lat, res.lng, res.name);
+                  setSearchResults([]);
+                }}
+                className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-lg text-[10px] font-medium transition-colors truncate max-w-[180px]"
+                title={res.name}
+              >
+                📍 {res.name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Preset Destination Buttons */}
       <div className="flex flex-wrap gap-1.5">
         <button
           type="button"
           onClick={handleGetCurrentLocation}
           disabled={gpsLoading}
-          className="px-2.5 py-1 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 text-[11px] font-medium flex items-center gap-1 transition-all shadow-xs"
+          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-medium flex items-center gap-1 transition-all shadow-xs shrink-0"
         >
           {gpsLoading ? (
-            <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+            <Loader2 className="w-3 h-3 animate-spin" />
           ) : (
             <Crosshair className="w-3.5 h-3.5" />
           )}
@@ -249,7 +437,11 @@ export default function ChatMapPicker({
             key={idx}
             type="button"
             onClick={() => updatePin(preset.lat, preset.lng, preset.name, preset.isReturn)}
-            className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-medium transition-colors flex items-center gap-1"
+            className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors flex items-center gap-1 border ${
+              locationName === preset.name
+                ? 'bg-blue-100 text-blue-900 border-blue-300 font-semibold shadow-xs'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/80'
+            }`}
           >
             <span>{preset.icon}</span>
             <span>{preset.name}</span>
@@ -257,37 +449,142 @@ export default function ChatMapPicker({
         ))}
       </div>
 
+      {/* Destination Name Input / Editor */}
+      <div className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-50 border border-slate-200/90 rounded-xl">
+        <span className="text-[10px] font-bold text-slate-600 shrink-0">ชื่อจุดหมาย:</span>
+        <input
+          type="text"
+          value={locationName}
+          onChange={(e) => setLocationName(e.target.value)}
+          placeholder="ระบุหรือแก้ไขชื่อสถานที่ปลายทาง..."
+          className="flex-1 bg-transparent text-[11px] font-semibold text-blue-900 focus:outline-none"
+        />
+      </div>
+
       {/* Mini Leaflet Map */}
-      <div className="relative rounded-xl overflow-hidden border border-slate-200 h-44 bg-slate-100">
+      <div className="relative rounded-xl overflow-hidden border border-slate-200 h-44 bg-slate-100 shadow-inner">
         <div ref={mapContainerRef} className="w-full h-full" />
-        <div className="absolute top-2 left-2 z-[400] bg-white/90 backdrop-blur-xs px-2 py-1 rounded-md text-[10px] shadow-xs text-slate-700 flex items-center gap-1 font-mono">
+        <div className="absolute top-2 left-2 z-[400] bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-md text-[10px] shadow-sm text-slate-700 flex items-center gap-1 font-mono border border-slate-200/80">
           <MapPin className="w-3 h-3 text-rose-500" />
           <span>{selectedLat.toFixed(4)}, {selectedLng.toFixed(4)}</span>
+        </div>
+        <div className="absolute bottom-2 right-2 z-[400] bg-white/90 backdrop-blur-xs px-2 py-0.5 rounded text-[9px] text-slate-500 shadow-xs">
+          แตะหรือลากหมุดบนแผนที่ได้
         </div>
       </div>
 
       {/* Return Option Toggle */}
-      <div className="flex items-center justify-between px-1 py-1 bg-slate-50 rounded-xl text-[11px] text-slate-600">
-        <span>การเดินทางกลับ:</span>
+      <div className="flex items-center justify-between px-2.5 py-1.5 bg-slate-50 border border-slate-100 rounded-xl text-[11px]">
+        <span className="font-semibold text-slate-700">รูปแบบการเดินทาง:</span>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            onClick={() => setIsReturn(1)}
-            className={`px-2.5 py-0.5 rounded-lg font-medium transition-all ${
-              isReturn === 1 ? 'bg-blue-600 text-white shadow-xs' : 'bg-white text-slate-600 border border-slate-200'
+            onClick={() => {
+              setIsReturn(1);
+              if (endTime === 'ไม่กลับ') setEndTime('13:00');
+            }}
+            className={`px-3 py-1 rounded-lg font-medium text-[11px] transition-all ${
+              isReturn === 1
+                ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
             }`}
           >
-            ต้องกลับวิทยาลัย
+            🔄 ต้องกลับวิทยาลัย
           </button>
           <button
             type="button"
-            onClick={() => setIsReturn(0)}
-            className={`px-2.5 py-0.5 rounded-lg font-medium transition-all ${
-              isReturn === 0 ? 'bg-amber-600 text-white shadow-xs' : 'bg-white text-slate-600 border border-slate-200'
+            onClick={() => {
+              setIsReturn(0);
+              setEndTime('ไม่กลับ');
+            }}
+            className={`px-3 py-1 rounded-lg font-medium text-[11px] transition-all ${
+              isReturn === 0
+                ? 'bg-amber-600 text-white shadow-xs font-semibold'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
             }`}
           >
-            กลับบ้านเลย (ไม่กลับ)
+            🏠 กลับบ้านเลย (ไม่กลับ)
           </button>
+        </div>
+      </div>
+
+      {/* 2. Time Selection Section (เวลาออก - เวลากลับ) */}
+      <div className="bg-blue-50/60 border border-blue-100/90 rounded-xl p-2.5 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 font-bold text-blue-900 text-[11px]">
+            <Clock className="w-3.5 h-3.5 text-blue-600" />
+            <span>กำหนดช่วงเวลา (สแกนหน้าได้เมื่อถึงเวลาที่เลือกเท่านั้น):</span>
+          </div>
+        </div>
+
+        {/* Quick Time Presets */}
+        <div className="flex flex-wrap gap-1.5">
+          {TIME_SLOT_PRESETS.map((slot, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => handleApplyPresetSlot(slot)}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all border ${
+                selectedSlotPreset === slot.label && startTime === slot.start && endTime === slot.end
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                  : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+              }`}
+            >
+              {slot.label} ({slot.start}-{slot.end})
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setSelectedSlotPreset('custom')}
+            className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all border ${
+              selectedSlotPreset === 'custom'
+                ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+            }`}
+          >
+            ⚙️ ระบุเวลาเอง
+          </button>
+        </div>
+
+        {/* Time Inputs */}
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          {/* Start Time */}
+          <div className="bg-white p-2 rounded-lg border border-slate-200/90 shadow-2xs">
+            <label className="block text-[10px] font-bold text-slate-600 mb-1">
+              🕒 เวลาขอออก (เริ่มสแกนได้):
+            </label>
+            <input
+              type="time"
+              value={startTime}
+              onChange={(e) => {
+                setStartTime(e.target.value);
+                setSelectedSlotPreset('custom');
+              }}
+              className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-md text-xs font-semibold text-slate-800 focus:bg-white focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+
+          {/* End Time / Return Time */}
+          <div className="bg-white p-2 rounded-lg border border-slate-200/90 shadow-2xs">
+            <label className="block text-[10px] font-bold text-slate-600 mb-1">
+              🏁 กำหนดเวลากลับ:
+            </label>
+            {isReturn === 1 ? (
+              <input
+                type="time"
+                value={endTime === 'ไม่กลับ' ? '13:00' : endTime}
+                onChange={(e) => {
+                  setEndTime(e.target.value);
+                  setSelectedSlotPreset('custom');
+                }}
+                className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-md text-xs font-semibold text-slate-800 focus:bg-white focus:border-blue-500 focus:outline-none"
+              />
+            ) : (
+              <div className="h-[27px] px-2 bg-amber-50 border border-amber-200/80 rounded-md text-[10px] font-semibold text-amber-800 flex items-center justify-center">
+                🏠 ไม่กลับเข้าวิทยาลัย
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -295,10 +592,12 @@ export default function ChatMapPicker({
       <button
         type="button"
         onClick={handleConfirm}
-        className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold text-xs shadow-md shadow-blue-500/20 flex items-center justify-center gap-1.5 transition-all active:scale-[0.98]"
+        className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-800 text-white font-semibold text-xs shadow-md shadow-blue-500/20 flex items-center justify-center gap-1.5 transition-all active:scale-[0.98]"
       >
         <CheckCircle2 className="w-4 h-4" />
-        <span>ยืนยันพิกัดจุดหมาย: {locationName} ({distance} กม.)</span>
+        <span>
+          ยืนยัน: {locationName} ({distance} กม.) • ออก {startTime} น.{isReturn === 1 ? ` - กลับ ${endTime} น.` : ' (ไม่กลับ)'}
+        </span>
       </button>
     </div>
   );
