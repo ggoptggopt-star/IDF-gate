@@ -13,7 +13,10 @@ import {
   Store,
   ChevronDown,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  ExternalLink,
+  Layers,
+  Sparkles
 } from 'lucide-react';
 
 export interface LocationTimeResult {
@@ -39,11 +42,12 @@ interface ChatMapPickerProps {
 const OICEC_LAT = 14.109127;
 const OICEC_LNG = 101.062441;
 
-// Popular destinations around Ongkharak
+// Popular destinations around Ongkharak & Nakhon Nayok
 const DESTINATION_PRESETS = [
   { name: 'โรงพยาบาลองครักษ์', lat: 14.1205, lng: 101.0020, icon: '🏥', isReturn: 1 },
   { name: 'ตลาดองครักษ์', lat: 14.1220, lng: 101.0050, icon: '🛍️', isReturn: 1 },
-  { name: 'เซเว่นอีเลฟเว่น หน้า วก.องครักษ์', lat: 14.1275, lng: 100.9995, icon: '🏪', isReturn: 1 },
+  { name: 'เซเว่นอีเลฟเว่น สาขาหน้า วก.องครักษ์', lat: 14.1095, lng: 101.0620, icon: '🏪', isReturn: 1 },
+  { name: 'มศว องครักษ์ (ศูนย์การแพทย์ฯ)', lat: 14.1050, lng: 100.9850, icon: '🏥', isReturn: 1 },
   { name: 'บ้านพัก (คลอง 15)', lat: 14.1120, lng: 100.9450, icon: '🏠', isReturn: 0 },
   { name: 'บ้านพัก (คลอง 16)', lat: 14.1350, lng: 100.9200, icon: '🏠', isReturn: 0 },
 ];
@@ -78,15 +82,19 @@ export default function ChatMapPicker({
   const [selectedLat, setSelectedLat] = useState(initialLat || 14.1205);
   const [selectedLng, setSelectedLng] = useState(initialLng || 101.0020);
   const [locationName, setLocationName] = useState(initialName);
+  const [locationAddress, setLocationAddress] = useState<string>('');
   const [isReturn, setIsReturn] = useState(initialName.includes('บ้าน') ? 0 : 1);
   const [startTime, setStartTime] = useState(initialStartTime);
   const [endTime, setEndTime] = useState(initialEndTime);
   const [selectedSlotPreset, setSelectedSlotPreset] = useState<string>('🍱 พักเที่ยง');
 
+  // Map layer: 'roadmap' (Google Maps Roads) vs 'satellite' (Google Maps Hybrid)
+  const [mapLayer, setMapLayer] = useState<'roadmap' | 'satellite'>('roadmap');
+
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<Array<{ name: string; lat: number; lng: number }>>([]);
+  const [searchResults, setSearchResults] = useState<Array<{ name: string; lat: number; lng: number; address?: string }>>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
 
   const [gpsLoading, setGpsLoading] = useState(false);
@@ -95,8 +103,9 @@ export default function ChatMapPicker({
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
+  const tileLayerRef = useRef<any>(null);
 
-  // Initialize Leaflet Map safely on client
+  // Initialize Google Maps in Leaflet safely on client
   useEffect(() => {
     let isMounted = true;
 
@@ -122,33 +131,41 @@ export default function ChatMapPicker({
         zoomControl: false,
       });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors',
-        maxZoom: 18,
+      // Google Maps Roadmap Tiles (mt1.google.com/vt/lyrs=m)
+      const tileUrl =
+        mapLayer === 'satellite'
+          ? 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
+          : 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
+
+      const tileLayer = L.tileLayer(tileUrl, {
+        attribution: '&copy; Google Maps',
+        maxZoom: 20,
       }).addTo(map);
 
-      // Custom Pin Icon
+      tileLayerRef.current = tileLayer;
+
+      // Custom Destination Pin Icon (Red Pin)
       const pinIcon = L.divIcon({
         className: 'custom-dest-pin',
         html: `
           <div style="
             background: #ef4444;
             color: white;
-            width: 34px;
-            height: 34px;
+            width: 36px;
+            height: 36px;
             border-radius: 50% 50% 50% 0;
             transform: rotate(-45deg);
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
             border: 2px solid white;
           ">
-            <span style="transform: rotate(45deg); font-size: 16px;">📍</span>
+            <span style="transform: rotate(45deg); font-size: 17px;">📍</span>
           </div>
         `,
-        iconSize: [34, 34],
-        iconAnchor: [17, 34],
+        iconSize: [36, 36],
+        iconAnchor: [18, 36],
       });
 
       const marker = L.marker([selectedLat, selectedLng], {
@@ -156,7 +173,7 @@ export default function ChatMapPicker({
         draggable: true,
       }).addTo(map);
 
-      // College Marker (OICEC)
+      // College Marker (OICEC) - Blue School Icon
       const collegeIcon = L.divIcon({
         className: 'college-pin',
         html: `
@@ -182,7 +199,7 @@ export default function ChatMapPicker({
 
       L.marker([OICEC_LAT, OICEC_LNG], { icon: collegeIcon })
         .addTo(map)
-        .bindPopup('<b>วิทยาลัยการอาชีพองครักษ์</b><br>จุดเริ่มต้น / ป้อมประตู 1');
+        .bindPopup('<b>วิทยาลัยการอาชีพองครักษ์ (OICEC)</b><br>จุดเริ่มต้น / ซุ้มประตู 1');
 
       marker.on('dragend', () => {
         const pos = marker.getLatLng();
@@ -211,10 +228,32 @@ export default function ChatMapPicker({
     };
   }, []);
 
-  const updatePin = (lat: number, lng: number, name: string, returnReq?: number) => {
+  // Handle Layer Toggle (Roadmap vs Satellite)
+  const toggleMapLayer = async () => {
+    if (!mapInstanceRef.current || !tileLayerRef.current) return;
+    const L = await import('leaflet');
+    const nextLayer = mapLayer === 'roadmap' ? 'satellite' : 'roadmap';
+    setMapLayer(nextLayer);
+
+    mapInstanceRef.current.removeLayer(tileLayerRef.current);
+    const tileUrl =
+      nextLayer === 'satellite'
+        ? 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
+        : 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
+
+    const newLayer = L.tileLayer(tileUrl, {
+      attribution: nextLayer === 'satellite' ? '&copy; Google Maps Satellite' : '&copy; Google Maps',
+      maxZoom: 20,
+    }).addTo(mapInstanceRef.current);
+
+    tileLayerRef.current = newLayer;
+  };
+
+  const updatePin = (lat: number, lng: number, name: string, returnReq?: number, address?: string) => {
     setSelectedLat(lat);
     setSelectedLng(lng);
     setLocationName(name);
+    if (address) setLocationAddress(address);
     if (returnReq !== undefined) {
       setIsReturn(returnReq);
     }
@@ -235,18 +274,18 @@ export default function ChatMapPicker({
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setGpsLoading(false);
-        updatePin(pos.coords.latitude, pos.coords.longitude, 'พิกัด GPS ปัจจุบัน', 0);
+        updatePin(pos.coords.latitude, pos.coords.longitude, 'พิกัด GPS ปัจจุบัน', 0, 'ตำแหน่งตรวจจับจากอุปกรณ์');
       },
       (err) => {
         setGpsLoading(false);
         console.warn(err);
-        alert('ไม่สามารถดึงตำแหน่งปัจจุบันได้ กรุณาแตะเลือกบนแผนที่หรือเลือกสถานที่ใกล้เคียง');
+        alert('ไม่สามารถดึงตำแหน่งปัจจุบันได้ กรุณาแตะเลือกบนแผนที่หรือพิมพ์ค้นหาสถานที่ครับ');
       },
       { enableHighAccuracy: true, timeout: 7000 }
     );
   };
 
-  // Search Handler
+  // Smart Search Handler (Powered by Gemini AI + Google Maps URL + Presets)
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const query = searchQuery.trim();
@@ -256,57 +295,34 @@ export default function ChatMapPicker({
     setSearchError(null);
     setSearchResults([]);
 
-    // 1. Check local presets first
-    const matchedPresets = DESTINATION_PRESETS.filter((p) =>
-      p.name.toLowerCase().includes(query.toLowerCase())
-    );
-
     try {
-      // 2. Query OpenStreetMap Nominatim with Ongkharak / Nakhon Nayok bias
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-        query
-      )}&countrycodes=th&limit=5`;
-
-      const res = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept-Language': 'th,en' },
+      const res = await fetch('/api/geocode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
       });
-      clearTimeout(timeoutId);
 
       const data = await res.json();
-      const onlineResults = Array.isArray(data)
-        ? data.map((item: any) => ({
-            name: item.display_name.split(',')[0] || item.display_name,
-            lat: parseFloat(item.lat),
-            lng: parseFloat(item.lon),
-          }))
-        : [];
-
-      const combined = [
-        ...matchedPresets.map((p) => ({ name: p.name, lat: p.lat, lng: p.lng })),
-        ...onlineResults,
-      ];
-
-      if (combined.length > 0) {
-        setSearchResults(combined);
-        // Automatically jump to first match
-        const first = combined[0];
-        updatePin(first.lat, first.lng, first.name);
+      if (data.success && data.results && data.results.length > 0) {
+        setSearchResults(data.results);
+        // Automatically pan and pin to the best result
+        const topResult = data.results[0];
+        updatePin(topResult.lat, topResult.lng, topResult.name, undefined, topResult.address);
       } else {
-        setSearchError('ไม่พบสถานที่นี้ ลองระบุชื่อให้กระชับขึ้น หรือแตะเลื่อนหมุดบนแผนที่ได้โดยตรงครับ');
+        setSearchError(data.error || `ไม่พบสถานที่ "${query}" ลองระบุชื่อให้สั้นลง หรือแตะเลือกบนแผนที่ Google ได้เลยครับ`);
       }
-    } catch (err) {
-      console.warn('Search error or timeout:', err);
-      if (matchedPresets.length > 0) {
-        setSearchResults(matchedPresets);
-        updatePin(matchedPresets[0].lat, matchedPresets[0].lng, matchedPresets[0].name);
+    } catch (err: any) {
+      console.warn('Geocode API request failed:', err);
+      // Fallback: check local presets
+      const matched = DESTINATION_PRESETS.filter((p) =>
+        p.name.toLowerCase().includes(query.toLowerCase())
+      );
+      if (matched.length > 0) {
+        setSearchResults(matched);
+        updatePin(matched[0].lat, matched[0].lng, matched[0].name);
       } else {
-        // Fallback: If search failed, still apply typed name and allow pinning on map
         setLocationName(query);
-        setSearchError('ไม่สามารถเชื่อมต่อระบบค้นหาได้ แต่คุณสามารถเลื่อนหมุดบนแผนที่ไปยังตำแหน่งที่ต้องการได้เลยครับ');
+        setSearchError('ไม่สามารถเชื่อมต่อระบบค้นหาได้ชั่วคราว คุณสามารถแตะเลือกตำแหน่งบนแผนที่ Google ได้โดยตรงครับ');
       }
     } finally {
       setIsSearching(false);
@@ -340,7 +356,7 @@ export default function ChatMapPicker({
           <CheckCircle2 className="w-5 h-5" />
         </div>
         <div>
-          <p className="font-semibold text-emerald-950">บันทึกพิกัดและช่วงเวลาเรียบร้อยแล้ว ✓</p>
+          <p className="font-semibold text-emerald-950">บันทึกพิกัด Google Maps และเวลาเรียบร้อยแล้ว ✓</p>
           <p className="text-[11px] text-emerald-700">
             {locationName} ({distance} กม.) • เวลา {startTime} น. - {isReturn === 1 ? `${endTime} น.` : 'ไม่กลับเข้าวิทยาลัย'}
           </p>
@@ -355,7 +371,7 @@ export default function ChatMapPicker({
       <div className="flex items-center justify-between pb-2 border-b border-slate-100">
         <div className="flex items-center gap-1.5 font-bold text-blue-950">
           <MapPin className="w-4 h-4 text-rose-500 shrink-0" />
-          <span>ระบุพิกัดสถานที่และเวลาเดินทาง (Leaflet GPS)</span>
+          <span>ระบุพิกัดสถานที่และเวลาเดินทาง (Google Maps GPS)</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full font-semibold border border-blue-100">
@@ -374,7 +390,7 @@ export default function ChatMapPicker({
         </div>
       </div>
 
-      {/* 1. Search Box */}
+      {/* 1. Smart Search Box (Gemini AI + Google Maps URL + Real Places) */}
       <div className="space-y-1.5">
         <form onSubmit={handleSearch} className="flex items-center gap-1.5">
           <div className="relative flex-1">
@@ -383,8 +399,8 @@ export default function ChatMapPicker({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="พิมพ์ค้นหาสถานที่ เช่น เซเว่น, คลินิก, ร้านค้า..."
-              className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:outline-none text-[11px] text-slate-800 placeholder:text-slate-400"
+              placeholder="ค้นหาสถานที่จริง (เซเว่น, คลินิก, ร้านค้า หรือวางลิงก์ Google Maps)..."
+              className="w-full pl-8 pr-8 py-1.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:outline-none text-[11px] text-slate-800 placeholder:text-slate-400 transition-colors"
             />
             {searchQuery && (
               <button
@@ -394,7 +410,7 @@ export default function ChatMapPicker({
                   setSearchResults([]);
                   setSearchError(null);
                 }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -408,11 +424,28 @@ export default function ChatMapPicker({
             {isSearching ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              <Search className="w-3.5 h-3.5" />
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
             )}
-            <span>ค้นหา</span>
+            <span>ค้นหาจริง</span>
           </button>
         </form>
+
+        {/* External Google Maps Button */}
+        <div className="flex items-center justify-between text-[10px] text-slate-500 px-1">
+          <span className="flex items-center gap-1">
+            <Sparkles className="w-3 h-3 text-blue-500" />
+            <span>ค้นหาด้วย Google AI รู้จักทุกจุดในไทย</span>
+          </span>
+          <a
+            href={`https://www.google.com/maps/@${OICEC_LAT},${OICEC_LNG},15z`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium hover:underline"
+          >
+            <span>เปิด Google Maps หาพิกัด</span>
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
 
         {/* Search Error Message */}
         {searchError && (
@@ -423,23 +456,28 @@ export default function ChatMapPicker({
         )}
 
         {/* Search Results Dropdown Chips */}
-        {searchResults.length > 1 && (
-          <div className="flex flex-wrap gap-1 pt-0.5">
-            <span className="text-[10px] text-slate-500 font-medium self-center">ผลการค้นหา:</span>
-            {searchResults.slice(0, 4).map((res, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => {
-                  updatePin(res.lat, res.lng, res.name);
-                  setSearchResults([]);
-                }}
-                className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-lg text-[10px] font-medium transition-colors truncate max-w-[180px]"
-                title={res.name}
-              >
-                📍 {res.name}
-              </button>
-            ))}
+        {searchResults.length > 0 && (
+          <div className="space-y-1 pt-1 bg-blue-50/70 p-2 rounded-xl border border-blue-100">
+            <span className="text-[10px] text-blue-900 font-bold block">ผลการค้นหาสถานที่จริง (แตะเพื่อปักหมุด):</span>
+            <div className="flex flex-col gap-1 max-h-36 overflow-y-auto">
+              {searchResults.map((res, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => {
+                    updatePin(res.lat, res.lng, res.name, undefined, res.address);
+                    setSearchResults([]);
+                  }}
+                  className="px-2.5 py-1.5 bg-white hover:bg-blue-100/80 text-left border border-slate-200/80 rounded-lg text-[11px] transition-colors flex items-start gap-1.5 shadow-2xs"
+                >
+                  <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
+                  <div className="truncate">
+                    <p className="font-semibold text-slate-900 truncate">{res.name}</p>
+                    {res.address && <p className="text-[10px] text-slate-500 truncate">{res.address}</p>}
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -478,26 +516,45 @@ export default function ChatMapPicker({
       </div>
 
       {/* Destination Name Input / Editor */}
-      <div className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-50 border border-slate-200/90 rounded-xl">
-        <span className="text-[10px] font-bold text-slate-600 shrink-0">ชื่อจุดหมาย:</span>
-        <input
-          type="text"
-          value={locationName}
-          onChange={(e) => setLocationName(e.target.value)}
-          placeholder="ระบุหรือแก้ไขชื่อสถานที่ปลายทาง..."
-          className="flex-1 bg-transparent text-[11px] font-semibold text-blue-900 focus:outline-none"
-        />
+      <div className="px-2.5 py-1.5 bg-slate-50 border border-slate-200/90 rounded-xl space-y-0.5">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold text-slate-600 shrink-0">จุดหมาย:</span>
+          <input
+            type="text"
+            value={locationName}
+            onChange={(e) => setLocationName(e.target.value)}
+            placeholder="ระบุหรือแก้ไขชื่อสถานที่ปลายทาง..."
+            className="flex-1 bg-transparent text-[11px] font-semibold text-blue-900 focus:outline-none"
+          />
+        </div>
+        {locationAddress && (
+          <p className="text-[10px] text-slate-500 pl-11 truncate">📍 {locationAddress}</p>
+        )}
       </div>
 
-      {/* Mini Leaflet Map */}
-      <div className="relative rounded-xl overflow-hidden border border-slate-200 h-44 bg-slate-100 shadow-inner">
+      {/* Google Maps View */}
+      <div className="relative rounded-xl overflow-hidden border border-slate-300 h-48 bg-slate-100 shadow-inner">
         <div ref={mapContainerRef} className="w-full h-full" />
+
+        {/* Coordinates badge */}
         <div className="absolute top-2 left-2 z-[400] bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-md text-[10px] shadow-sm text-slate-700 flex items-center gap-1 font-mono border border-slate-200/80">
           <MapPin className="w-3 h-3 text-rose-500" />
           <span>{selectedLat.toFixed(4)}, {selectedLng.toFixed(4)}</span>
         </div>
-        <div className="absolute bottom-2 right-2 z-[400] bg-white/90 backdrop-blur-xs px-2 py-0.5 rounded text-[9px] text-slate-500 shadow-xs">
-          แตะหรือลากหมุดบนแผนที่ได้
+
+        {/* Google Layer Switcher (Roadmap vs Satellite) */}
+        <button
+          type="button"
+          onClick={toggleMapLayer}
+          className="absolute top-2 right-2 z-[400] bg-white/95 hover:bg-white text-slate-700 px-2.5 py-1 rounded-md text-[10px] font-semibold shadow-sm border border-slate-200 flex items-center gap-1 transition-all"
+          title="สลับแผนที่ถนน / ภาพดาวเทียม Google"
+        >
+          <Layers className="w-3 h-3 text-blue-600" />
+          <span>{mapLayer === 'roadmap' ? '🛰️ ภาพดาวเทียม' : '🗺️ แผนที่ถนน'}</span>
+        </button>
+
+        <div className="absolute bottom-2 right-2 z-[400] bg-white/90 backdrop-blur-xs px-2 py-0.5 rounded text-[9px] text-slate-600 font-medium shadow-xs">
+          Google Maps • แตะหรือลากหมุดได้อิสระ
         </div>
       </div>
 
