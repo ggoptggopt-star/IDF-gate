@@ -27,8 +27,8 @@ export default function PdpaGpsModal() {
     setLoading(true);
     setGpsError('');
 
-    let initialLat = 14.1285;
-    let initialLng = 100.9985;
+    let initialLat = 14.109127;
+    let initialLng = 101.062441;
 
     // Request GPS permission once
     if (typeof window !== 'undefined' && 'geolocation' in navigator) {

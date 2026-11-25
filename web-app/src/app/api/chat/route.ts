@@ -933,7 +933,7 @@ Slots ที่บันทึกไว้ก่อนหน้า: ${JSON.strin
       `,
         newId, requestCode, student_id, matchedCourse?.id || null,
         finalSlots.category || 'personal', finalSlots.reason || 'ธุระส่วนตัวจำเป็น',
-        finalSlots.destination_name, finalSlots.destination_lat || 14.1285, finalSlots.destination_lng || 100.9985,
+        finalSlots.destination_name, finalSlots.destination_lat || 14.109127, finalSlots.destination_lng || 101.062441,
         finalSlots.attachment_path || null,
         actualLeaveDate, finalSlots.allowed_start_time, finalSlots.allowed_end_time,
         finalSlots.is_return_required !== undefined ? finalSlots.is_return_required : 1,

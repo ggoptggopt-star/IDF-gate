@@ -29,8 +29,8 @@ import {
 import { LeaveRequest } from '@/types';
 
 // College coordinates: OICEC (วิทยาลัยการอาชีพองครักษ์)
-const OICEC_LAT = 14.1285;
-const OICEC_LNG = 100.9985;
+const OICEC_LAT = 14.109127;
+const OICEC_LNG = 101.062441;
 
 function calcDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371e3; // metres

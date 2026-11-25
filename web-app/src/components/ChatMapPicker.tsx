@@ -36,8 +36,8 @@ interface ChatMapPickerProps {
 }
 
 // College coordinates: OICEC (วิทยาลัยการอาชีพองครักษ์)
-const OICEC_LAT = 14.1285;
-const OICEC_LNG = 100.9985;
+const OICEC_LAT = 14.109127;
+const OICEC_LNG = 101.062441;
 
 // Popular destinations around Ongkharak
 const DESTINATION_PRESETS = [
@@ -155,6 +155,34 @@ export default function ChatMapPicker({
         icon: pinIcon,
         draggable: true,
       }).addTo(map);
+
+      // College Marker (OICEC)
+      const collegeIcon = L.divIcon({
+        className: 'college-pin',
+        html: `
+          <div style="
+            background: #1e3a8a;
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.35);
+            border: 2px solid white;
+            font-size: 15px;
+          ">
+            🏫
+          </div>
+        `,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      });
+
+      L.marker([OICEC_LAT, OICEC_LNG], { icon: collegeIcon })
+        .addTo(map)
+        .bindPopup('<b>วิทยาลัยการอาชีพองครักษ์</b><br>จุดเริ่มต้น / ป้อมประตู 1');
 
       marker.on('dragend', () => {
         const pos = marker.getLatLng();
