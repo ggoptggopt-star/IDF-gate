@@ -1,24 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenAI } from '@google/genai';
-
-// Reference College: Ongkharak Industrial and Community Education College (OICEC)
-const OICEC_LAT = 14.109127;
-const OICEC_LNG = 101.062441;
-
-// Preset local places around Ongkharak & Nakhon Nayok for instant zero-latency match
-const LOCAL_PRESETS = [
-  { name: 'วิทยาลัยการอาชีพองครักษ์ (OICEC)', lat: 14.109127, lng: 101.062441, address: 'ต.องครักษ์ อ.องครักษ์ จ.นครนายก' },
-  { name: 'โรงพยาบาลองครักษ์', lat: 14.1205, lng: 101.0020, address: 'ต.องครักษ์ อ.องครักษ์ จ.นครนายก' },
-  { name: 'ตลาดองครักษ์', lat: 14.1220, lng: 101.0050, address: 'เทศบาลตำบลองครักษ์ อ.องครักษ์ จ.นครนายก' },
-  { name: 'เซเว่นอีเลฟเว่น สาขาหน้า วก.องครักษ์', lat: 14.1095, lng: 101.0620, address: 'หน้าวิทยาลัยการอาชีพองครักษ์' },
-  { name: 'เซเว่นอีเลฟเว่น สาขาตลาดองครักษ์', lat: 14.1225, lng: 101.0048, address: 'ตลาดองครักษ์' },
-  { name: 'โรงพยาบาลศูนย์การแพทย์สมเด็จพระเทพฯ (มศว องครักษ์)', lat: 14.1050, lng: 100.9850, address: 'มศว คลอง 16 อ.องครักษ์' },
-  { name: 'มหาวิทยาลัยศรีนครินทรวิโรฒ องครักษ์ (มศว)', lat: 14.1080, lng: 100.9800, address: 'อ.องครักษ์ จ.นครนายก' },
-  { name: 'ที่ว่าการอำเภอองครักษ์', lat: 14.1240, lng: 101.0010, address: 'อ.องครักษ์ จ.นครนายก' },
-  { name: 'สถานีตำรวจภูธรเมืององครักษ์ (สภ.องครักษ์)', lat: 14.1230, lng: 101.0015, address: 'อ.องครักษ์ จ.นครนายก' },
-  { name: 'บ้านพัก (คลอง 15)', lat: 14.1120, lng: 100.9450, address: 'คลอง 15 อ.องครักษ์ จ.นครนายก' },
-  { name: 'บ้านพัก (คลอง 16)', lat: 14.1350, lng: 100.9200, address: 'คลอง 16 อ.องครักษ์ จ.นครนายก' },
-];
+import {
+  VERIFIED_LOCATIONS,
+  searchVerifiedLocations,
+  calcDistanceKm,
+  OICEC_COLLEGE,
+} from '@/lib/ongkharakLocations';
 
 // Helper: Extract Lat/Lng from Google Maps link
 async function resolveGoogleMapsUrl(urlStr: string) {
@@ -38,7 +24,7 @@ async function resolveGoogleMapsUrl(urlStr: string) {
       return {
         lat: parseFloat(atMatch[1]),
         lng: parseFloat(atMatch[2]),
-        name: 'ตำแหน่งจาก Google Maps',
+        name: 'ตำแหน่งพิกัดจาก Google Maps',
       };
     }
 
@@ -73,7 +59,18 @@ export async function POST(req: NextRequest) {
     const query = (body.query || '').trim();
 
     if (!query) {
-      return NextResponse.json({ success: false, error: 'กรุณาระบุคำค้นหาสถานที่' }, { status: 400 });
+      return NextResponse.json({
+        success: true,
+        results: VERIFIED_LOCATIONS.slice(0, 10).map((loc) => ({
+          name: loc.name,
+          lat: loc.lat,
+          lng: loc.lng,
+          address: loc.address,
+          icon: loc.icon,
+          isReturn: loc.isReturn !== undefined ? loc.isReturn : 1,
+          distance: calcDistanceKm(OICEC_COLLEGE.lat, OICEC_COLLEGE.lng, loc.lat, loc.lng),
+        })),
+      });
     }
 
     // 1. Direct Coordinate Detection (e.g. "14.1091, 101.0624")
@@ -81,23 +78,27 @@ export async function POST(req: NextRequest) {
     if (coordMatch) {
       const lat = parseFloat(coordMatch[1]);
       const lng = parseFloat(coordMatch[2]);
+      const dist = calcDistanceKm(OICEC_COLLEGE.lat, OICEC_COLLEGE.lng, lat, lng);
       return NextResponse.json({
         success: true,
         results: [
           {
-            name: `พิกัด GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+            name: `พิกัดระบุเอง (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
             lat,
             lng,
-            address: 'พิกัดภูมิศาสตร์ที่ระบุโดยตรง',
+            address: `ระยะห่างจาก วก.องครักษ์ ${dist} กม.`,
+            icon: '📍',
+            distance: dist,
           },
         ],
       });
     }
 
-    // 2. Google Maps URL Detection (e.g. maps.app.goo.gl, google.com/maps)
-    if (query.includes('http://') || query.includes('https://') || query.includes('maps')) {
+    // 2. Google Maps URL Detection
+    if (query.includes('http://') || query.includes('https://') || query.includes('maps.app.goo.gl') || query.includes('google.com/maps')) {
       const urlResult = await resolveGoogleMapsUrl(query);
       if (urlResult) {
+        const dist = calcDistanceKm(OICEC_COLLEGE.lat, OICEC_COLLEGE.lng, urlResult.lat, urlResult.lng);
         return NextResponse.json({
           success: true,
           results: [
@@ -105,123 +106,66 @@ export async function POST(req: NextRequest) {
               name: urlResult.name,
               lat: urlResult.lat,
               lng: urlResult.lng,
-              address: 'นำเข้าจากลิงก์ Google Maps โดยตรง',
+              address: `ตำแหน่งจริงจากลิงก์ Google Maps (${dist} กม.)`,
+              icon: '📍',
+              distance: dist,
             },
           ],
         });
       }
     }
 
-    // 3. Check Local Presets first
-    const matchedPresets = LOCAL_PRESETS.filter((p) =>
-      p.name.toLowerCase().includes(query.toLowerCase()) || query.toLowerCase().includes(p.name.toLowerCase())
-    );
-
-    // 4. Use Google Gemini AI for Real-world Thai Geocoding (Free via existing key)
-    const apiKey = process.env.GEMINI_API_KEY;
-    let geminiResults: Array<{ name: string; lat: number; lng: number; address: string }> = [];
-
-    if (apiKey) {
-      try {
-        const ai = new GoogleGenAI({ apiKey });
-        const prompt = `
-You are a precise GPS Location Finder for Thailand, especially Ongkharak, Nakhon Nayok, and surrounding provinces.
-The user is searching for this place: "${query}"
-
-Reference college location:
-- Ongkharak Industrial and Community Education College (วิทยาลัยการอาชีพองครักษ์): latitude 14.109127, longitude 101.062441
-
-Find the real-world GPS coordinates (latitude, longitude) and official Thai place name for this location.
-If the place has multiple branches or is a chain (e.g. 7-Eleven, clinic, bank, Lotus), choose or prioritize the branch nearest to Ongkharak / Nakhon Nayok / path from college.
-
-Respond ONLY with valid JSON in this exact structure, without any markdown formatting or extra text:
-[
-  {
-    "name": "ชื่อสถานที่ภาษาไทยที่กระชับและถูกต้อง",
-    "lat": 14.1205,
-    "lng": 101.0020,
-    "address": "ตำบล อำเภอ จังหวัด หรือจุดสังเกต"
-  }
-]
-`;
-
-        const candidateModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
-        for (const modelName of candidateModels) {
-          try {
-            const response = await ai.models.generateContent({
-              model: modelName,
-              contents: prompt,
-            });
-
-            const rawText = response.text?.trim() || '';
-            const cleaned = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-            let parsed = JSON.parse(cleaned);
-
-            if (!Array.isArray(parsed) && typeof parsed === 'object') {
-              parsed = [parsed];
-            }
-
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              geminiResults = parsed
-                .filter((p: any) => typeof p.lat === 'number' && typeof p.lng === 'number' && p.lat > 5 && p.lat < 21)
-                .map((p: any) => ({
-                  name: String(p.name || query),
-                  lat: Number(p.lat),
-                  lng: Number(p.lng),
-                  address: String(p.address || ''),
-                }));
-              if (geminiResults.length > 0) break;
-            }
-          } catch (modelErr: any) {
-            console.warn(`Gemini model ${modelName} error:`, modelErr.message);
-          }
-        }
-      } catch (geminiErr: any) {
-        console.warn('Gemini geocode error:', geminiErr.message);
-      }
-    }
-
-    // 5. OpenStreetMap Nominatim Fallback if needed
-    let nominatimResults: Array<{ name: string; lat: number; lng: number; address: string }> = [];
-    if (geminiResults.length === 0) {
-      try {
-        const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-          query
-        )}&countrycodes=th&limit=5`;
-        const nomRes = await fetch(nomUrl, {
-          headers: { 'Accept-Language': 'th,en', 'User-Agent': 'SmartGatePass/1.0' },
-        });
-        const nomData = await nomRes.json();
-        if (Array.isArray(nomData)) {
-          nominatimResults = nomData.map((item: any) => ({
-            name: item.display_name.split(',')[0] || item.display_name,
-            lat: parseFloat(item.lat),
-            lng: parseFloat(item.lon),
-            address: item.display_name,
-          }));
-        }
-      } catch (nomErr) {
-        console.warn('Nominatim fallback error:', nomErr);
-      }
-    }
-
-    // Merge and deduplicate results
-    const combined = [
-      ...matchedPresets,
-      ...geminiResults,
-      ...nominatimResults,
-    ];
-
-    if (combined.length === 0) {
+    // 3. Search Curated Verified High-Precision Database
+    const matchedVerified = searchVerifiedLocations(query);
+    if (matchedVerified.length > 0) {
       return NextResponse.json({
-        success: false,
-        error: `ไม่พบสถานที่ "${query}" ลองระบุชื่อให้ชัดเจนขึ้น หรือวางลิงก์จาก Google Maps ได้เลยครับ`,
+        success: true,
+        results: matchedVerified.map((loc) => ({
+          name: loc.name,
+          lat: loc.lat,
+          lng: loc.lng,
+          address: loc.address,
+          icon: loc.icon,
+          isReturn: loc.isReturn !== undefined ? loc.isReturn : 1,
+          distance: calcDistanceKm(OICEC_COLLEGE.lat, OICEC_COLLEGE.lng, loc.lat, loc.lng),
+        })),
       });
     }
 
+    // 4. OpenStreetMap Nominatim with strict Nakhon Nayok / Ongkharak viewbox bounding
+    try {
+      const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+        query + ' นครนายก'
+      )}&countrycodes=th&viewbox=100.80,14.30,101.30,13.90&bounded=0&limit=5`;
+
+      const nomRes = await fetch(nomUrl, {
+        headers: { 'Accept-Language': 'th,en', 'User-Agent': 'SmartGatePass/1.0' },
+      });
+      const nomData = await nomRes.json();
+      if (Array.isArray(nomData) && nomData.length > 0) {
+        const results = nomData.map((item: any) => {
+          const lat = parseFloat(item.lat);
+          const lng = parseFloat(item.lon);
+          const dist = calcDistanceKm(OICEC_COLLEGE.lat, OICEC_COLLEGE.lng, lat, lng);
+          return {
+            name: item.display_name.split(',')[0] || item.display_name,
+            lat,
+            lng,
+            address: item.display_name,
+            icon: '📍',
+            distance: dist,
+          };
+        });
+
+        return NextResponse.json({ success: true, results });
+      }
+    } catch (nomErr) {
+      console.warn('Nominatim error:', nomErr);
+    }
+
     return NextResponse.json({
-      success: true,
-      results: combined.slice(0, 5),
+      success: false,
+      error: `ไม่พบสถานที่ "${query}" ในรายชื่อที่ตรวจสอบแล้ว คุณสามารถเลือกแตะหมุดบนภาพถ่ายดาวเทียม Google Maps หรือเลือกจากรายชื่อด้านล่างได้เลยครับ`,
     });
   } catch (error: any) {
     console.error('Geocode API Error:', error);
