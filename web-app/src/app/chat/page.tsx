@@ -5,7 +5,6 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ChevronLeft,
-  ChevronRight,
   Sparkles,
   Send,
   Paperclip,
@@ -14,22 +13,10 @@ import {
   ScanFace,
   Image as ImageIcon,
   X,
-  FileText,
-  MessageSquare,
-  Building2,
-  Calendar,
   Clock,
   UserCheck,
-  Shield,
-  Award,
-  User,
-  ThumbsUp,
   XCircle,
   RotateCcw,
-  DoorOpen,
-  ClipboardList,
-  HelpCircle,
-  MapPin,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { LeaveRequest } from '@/types';
@@ -50,6 +37,12 @@ export interface ChatSlots {
   attachment_prompted?: boolean;
 }
 
+export interface ChatOption {
+  label: string;
+  actionValue: string;
+  variant?: 'default' | 'primary' | 'success' | 'home';
+}
+
 interface ChatMessage {
   id: string;
   sender: 'student' | 'bot' | 'system' | 'teacher';
@@ -60,9 +53,7 @@ interface ChatMessage {
   poweredBy?: string;
   attachmentUrl?: string | null;
   requestCard?: LeaveRequest;
-  quickPills?: string[];
-  categoryMenu?: boolean;
-  faqList?: boolean;
+  options?: ChatOption[];
   checkinCard?: {
     destination: string;
     distance_m: number;
@@ -71,6 +62,55 @@ interface ChatMessage {
     maps_url: string;
   };
 }
+
+// Preset Capsule Option Sets (In-Chat under AI bubbles)
+const MAIN_MENU_OPTIONS: ChatOption[] = [
+  { label: '🚪 ขออนุญาตออกนอกวิทยาลัย', actionValue: 'act_leave', variant: 'primary' },
+  { label: '📋 ติดตามสถานะคำร้องของฉัน', actionValue: 'act_status', variant: 'default' },
+  { label: '❓ คำถามที่พบบ่อย (FAQ)', actionValue: 'act_faq', variant: 'default' },
+];
+
+const CATEGORY_OPTIONS: ChatOption[] = [
+  { label: '🏥 พบแพทย์ / ป่วย', actionValue: 'cat_medical', variant: 'default' },
+  { label: '🧳 ธุระส่วนตัว', actionValue: 'cat_personal', variant: 'default' },
+  { label: '📁 ธุระแผนกวิชา', actionValue: 'cat_department', variant: 'default' },
+  { label: '🚗 ผู้ปกครองมารับ', actionValue: 'cat_parent_pickup', variant: 'default' },
+  { label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' },
+];
+
+const DESTINATION_OPTIONS: ChatOption[] = [
+  { label: '📍 เลือกบนแผนที่ Leaflet', actionValue: 'dest_map', variant: 'primary' },
+  { label: '🏥 รพ.องครักษ์', actionValue: 'dest_hospital', variant: 'default' },
+  { label: '🛍️ ตลาดองครักษ์', actionValue: 'dest_market', variant: 'default' },
+  { label: '🏠 คลอง 15', actionValue: 'dest_klong15', variant: 'default' },
+  { label: '🏠 คลอง 16', actionValue: 'dest_klong16', variant: 'default' },
+  { label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' },
+];
+
+const TIME_OPTIONS: ChatOption[] = [
+  { label: '⏰ 12:00 - ไม่กลับ', actionValue: 'time_noon_noreturn', variant: 'default' },
+  { label: '⏰ 12:00 - 13:00 น.', actionValue: 'time_lunch', variant: 'default' },
+  { label: '⏰ 13:00 - 16:30 น.', actionValue: 'time_afternoon', variant: 'default' },
+  { label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' },
+];
+
+const ATTACHMENT_OPTIONS: ChatOption[] = [
+  { label: '📎 อัปโหลดรูปใบนัด / แชท', actionValue: 'attach_upload', variant: 'primary' },
+  { label: '⏩ ไม่มีเอกสารแนบ (ข้าม)', actionValue: 'attach_skip', variant: 'default' },
+  { label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' },
+];
+
+const CONFIRM_OPTIONS: ChatOption[] = [
+  { label: '✓ ยืนยันยื่นคำร้อง', actionValue: 'confirm_send', variant: 'success' },
+  { label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' },
+];
+
+const FAQ_OPTIONS: ChatOption[] = [
+  { label: '🔒 วิธีสแกนใบหน้าเปิดไม้กั้น', actionValue: 'faq_scan', variant: 'default' },
+  { label: '⏰ ตารางเวลาอนุญาตให้ออก-เข้า', actionValue: 'faq_time', variant: 'default' },
+  { label: '🛡️ กฎการอนุมัติ 5 ขั้นตอน', actionValue: 'faq_rules', variant: 'default' },
+  { label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' },
+];
 
 function getMessengerDivider(curr: ChatMessage, prev?: ChatMessage): { show: boolean; label: string } {
   const currTs = curr.timestamp || Date.now();
@@ -97,7 +137,6 @@ function getMessengerDivider(curr: ChatMessage, prev?: ChatMessage): { show: boo
     return d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' น.';
   };
 
-  // 1. Very first message of conversation
   if (!prev) {
     return { show: true, label: formatFullDateTime(currD) };
   }
@@ -105,12 +144,10 @@ function getMessengerDivider(curr: ChatMessage, prev?: ChatMessage): { show: boo
   const prevTs = prev.timestamp || currTs;
   const prevD = new Date(prevTs);
 
-  // 2. Day changed
   if (currD.toDateString() !== prevD.toDateString() || (curr.dateStr && prev.dateStr && curr.dateStr !== prev.dateStr)) {
     return { show: true, label: formatFullDateTime(currD) };
   }
 
-  // 3. Same day, but time gap > 15 minutes -> Messenger shows ONLY TIME
   if (Math.abs(currTs - prevTs) > 15 * 60 * 1000) {
     return { show: true, label: formatTimeOnly(currD) };
   }
@@ -121,7 +158,6 @@ function getMessengerDivider(curr: ChatMessage, prev?: ChatMessage): { show: boo
 function ChatContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialCategory = searchParams.get('category');
   const { user, isLoading } = useAuth();
 
   useEffect(() => {
@@ -291,7 +327,7 @@ function ChatContent() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      if (localStorage.getItem('sgp_chat_clean_v8') !== 'true') {
+      if (localStorage.getItem('sgp_chat_clean_v9') !== 'true') {
         Object.keys(localStorage).forEach((key) => {
           if (key.startsWith('sgp_chat_history_')) {
             try {
@@ -306,7 +342,7 @@ function ChatContent() {
             } catch {}
           }
         });
-        localStorage.setItem('sgp_chat_clean_v8', 'true');
+        localStorage.setItem('sgp_chat_clean_v9', 'true');
       }
     } catch {}
   }, []);
@@ -365,7 +401,7 @@ function ChatContent() {
       };
     }
 
-    // Default / Student View (3 Main Categories Guided Menu Card)
+    // Default / Student View (With Main Menu Capsule Buttons in message)
     return {
       id: `greet-${Date.now()}`,
       sender: 'bot',
@@ -374,7 +410,7 @@ function ChatContent() {
       timestamp: Date.now(),
       dateStr: todayStr,
       poweredBy: 'Google Gemini AI',
-      categoryMenu: true,
+      options: MAIN_MENU_OPTIONS,
     };
   };
 
@@ -398,7 +434,7 @@ function ChatContent() {
     }
   };
 
-  // Return to Main Menu (3 Categories)
+  // Helper: Return to Main Menu (Always accessible)
   const handleReturnToMainMenu = () => {
     const now = new Date();
     const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -427,22 +463,34 @@ function ChatContent() {
         timestamp: Date.now() + 50,
         dateStr: todayStr,
         poweredBy: 'Google Gemini AI',
-        categoryMenu: true,
+        options: MAIN_MENU_OPTIONS,
       },
     ]);
   };
 
-  // Handle 3 Main Category Card clicks
-  const handleCategorySelect = async (type: 'leave' | 'status' | 'faq') => {
+  // Handle In-Chat Capsule Option Click (Self-Disappearing on Select)
+  const handleOptionClick = async (messageId: string, opt: ChatOption) => {
+    // 1. Immediately remove buttons from this message so it leaves only pure chat history
+    setMessages((prev) =>
+      prev.map((m) => (m.id === messageId ? { ...m, options: undefined } : m))
+    );
+
     const now = new Date();
     const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-    if (type === 'leave') {
+    // A. Main Menu Action: Return to main menu
+    if (opt.actionValue === 'act_main_menu') {
+      handleReturnToMainMenu();
+      return;
+    }
+
+    // B. Main Menu Action: Request Leave
+    if (opt.actionValue === 'act_leave') {
       setMessages((prev) => [
         ...prev,
         {
-          id: `stu-cat-${Date.now()}`,
+          id: `stu-leave-${Date.now()}`,
           sender: 'student',
           text: '🚪 ขออนุญาตออกนอกวิทยาลัย',
           time: nowTime,
@@ -452,17 +500,19 @@ function ChatContent() {
         {
           id: `bot-cat-${Date.now()}`,
           sender: 'bot',
-          text: 'รับทราบครับ กรุณาเลือกหมวดหมู่และระบุเหตุผลความจำเป็นในการขอออกนอกวิทยาลัยครับ (แตะเลือกปุ่มหมวดหมู่ด้านล่าง หรือพิมพ์บอกผมได้เลยครับ):',
+          text: 'รับทราบครับ กรุณาเลือกหมวดหมู่และระบุเหตุผลความจำเป็นในการขอออกนอกวิทยาลัย หรือพิมพ์บอกผมได้เลยครับ:',
           time: nowTime,
           timestamp: Date.now() + 50,
           dateStr: todayStr,
           poweredBy: 'Google Gemini AI',
+          options: CATEGORY_OPTIONS,
         },
       ]);
       return;
     }
 
-    if (type === 'status') {
+    // C. Main Menu Action: Check Status
+    if (opt.actionValue === 'act_status') {
       setMessages((prev) => [
         ...prev,
         {
@@ -493,6 +543,7 @@ function ChatContent() {
               dateStr: todayStr,
               poweredBy: 'Google Gemini AI',
               requestCard: fresh,
+              options: [{ label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' }],
             },
           ]);
         } else {
@@ -506,7 +557,7 @@ function ChatContent() {
               timestamp: Date.now(),
               dateStr: todayStr,
               poweredBy: 'Google Gemini AI',
-              categoryMenu: true,
+              options: MAIN_MENU_OPTIONS,
             },
           ]);
         }
@@ -516,7 +567,8 @@ function ChatContent() {
       return;
     }
 
-    if (type === 'faq') {
+    // D. Main Menu Action: FAQ List
+    if (opt.actionValue === 'act_faq') {
       setMessages((prev) => [
         ...prev,
         {
@@ -535,56 +587,276 @@ function ChatContent() {
           timestamp: Date.now() + 50,
           dateStr: todayStr,
           poweredBy: 'Google Gemini AI',
-          faqList: true,
+          options: FAQ_OPTIONS,
         },
       ]);
       return;
     }
-  };
 
-  // Handle Category selection from dynamic quick buttons
-  const handleSelectCategoryPill = (cat: 'medical' | 'personal' | 'department' | 'parent_pickup') => {
-    let catName = 'ธุระส่วนตัวจำเป็น';
-    if (cat === 'medical') catName = 'พบแพทย์ / ป่วย';
-    if (cat === 'department') catName = 'ธุระแผนกวิชา';
-    if (cat === 'parent_pickup') catName = 'ผู้ปกครองมารับกลับบ้านก่อนเวลา';
+    // E. Category Selection
+    if (opt.actionValue.startsWith('cat_')) {
+      let cat: 'medical' | 'personal' | 'department' | 'parent_pickup' = 'personal';
+      let catName = 'ธุระส่วนตัว';
+      if (opt.actionValue === 'cat_medical') { cat = 'medical'; catName = 'พบแพทย์ / ป่วย'; }
+      if (opt.actionValue === 'cat_department') { cat = 'department'; catName = 'ธุระแผนกวิชา'; }
+      if (opt.actionValue === 'cat_parent_pickup') { cat = 'parent_pickup'; catName = 'ผู้ปกครองมารับกลับบ้านก่อนเวลา'; }
 
-    const updated = {
-      ...currentSlots,
-      category: cat,
-      reason: catName,
-    };
-    setCurrentSlots(updated);
+      const updated = { ...currentSlots, category: cat, reason: catName };
+      setCurrentSlots(updated);
 
-    handleSend(undefined, false, undefined, `ขอออกหมวดหมู่: ${catName}`);
-  };
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `stu-cat-choice-${Date.now()}`,
+          sender: 'student',
+          text: `หมวดหมู่: ${catName}`,
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+        {
+          id: `bot-dest-${Date.now()}`,
+          sender: 'bot',
+          text: 'รับทราบหมวดหมู่เรียบร้อยครับ กรุณาระบุสถานที่ปลายทางที่ต้องการเดินทางไป (เลือกบนแผนที่ Leaflet หรือแตะเลือกสถานที่ด้านล่าง):',
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: todayStr,
+          poweredBy: 'Google Gemini AI',
+          options: DESTINATION_OPTIONS,
+        },
+      ]);
+      return;
+    }
 
-  // Handle FAQ item click
-  const handleSelectFAQ = (question: string, answer: string) => {
-    const now = new Date();
-    const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    // F. Destination Selection: Leaflet Map Trigger
+    if (opt.actionValue === 'dest_map') {
+      setShowMapPicker(true);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `stu-map-${Date.now()}`,
+          sender: 'student',
+          text: '📍 เลือกบนแผนที่ Leaflet',
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+        {
+          id: `bot-map-open-${Date.now()}`,
+          sender: 'bot',
+          text: 'กำลังเปิดแผนที่ Leaflet ในห้องแชท กรุณาเลื่อนหมุดหรือเลือกพิกัดที่ต้องการ แล้วกด [ยืนยันพิกัดสถานที่นี้] ครับ',
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: todayStr,
+          poweredBy: 'Google Gemini AI',
+          options: [{ label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' }],
+        },
+      ]);
+      return;
+    }
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `stu-faq-q-${Date.now()}`,
-        sender: 'student',
-        text: question,
-        time: nowTime,
-        timestamp: Date.now(),
-        dateStr: todayStr,
-      },
-      {
-        id: `bot-faq-a-${Date.now()}`,
-        sender: 'bot',
-        text: answer,
-        time: nowTime,
-        timestamp: Date.now() + 50,
-        dateStr: todayStr,
-        poweredBy: 'Google Gemini AI',
-      },
-    ]);
+    // G. Destination Selection: Preset places
+    if (opt.actionValue.startsWith('dest_')) {
+      let destName = 'โรงพยาบาลองครักษ์';
+      let lat = 14.1205;
+      let lng = 101.0020;
+      let isReturn = 1;
+
+      if (opt.actionValue === 'dest_market') { destName = 'ตลาดองครักษ์'; lat = 14.1220; lng = 101.0050; isReturn = 1; }
+      if (opt.actionValue === 'dest_klong15') { destName = 'บ้านพักอาศัย (คลอง 15)'; lat = 14.1120; lng = 100.9450; isReturn = 0; }
+      if (opt.actionValue === 'dest_klong16') { destName = 'บ้านพักอาศัย (คลอง 16)'; lat = 14.1350; lng = 100.9200; isReturn = 0; }
+
+      const updated = {
+        ...currentSlots,
+        destination_name: destName,
+        destination_lat: lat,
+        destination_lng: lng,
+        is_return_required: isReturn,
+      };
+      setCurrentSlots(updated);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `stu-dest-choice-${Date.now()}`,
+          sender: 'student',
+          text: `สถานที่ปลายทาง: ${destName}`,
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+        {
+          id: `bot-time-${Date.now()}`,
+          sender: 'bot',
+          text: `บันทึกสถานที่ "${destName}" เรียบร้อยครับ กรุณาระบุช่วงเวลาที่ขอออกและกลับเข้าวิทยาลัย:`,
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: todayStr,
+          poweredBy: 'Google Gemini AI',
+          options: TIME_OPTIONS,
+        },
+      ]);
+      return;
+    }
+
+    // H. Time Selection
+    if (opt.actionValue.startsWith('time_')) {
+      let start = '12:00';
+      let end = 'ไม่กลับ';
+      let timeText = 'ช่วงพักเที่ยง 12:00 - ไม่กลับเข้าวิทยาลัย';
+
+      if (opt.actionValue === 'time_lunch') {
+        start = '12:00'; end = '13:00'; timeText = 'ช่วงพักเที่ยง 12:00 - 13:00 น.';
+      }
+      if (opt.actionValue === 'time_afternoon') {
+        start = '13:00'; end = '16:30'; timeText = 'ช่วงบ่าย 13:00 - 16:30 น.';
+      }
+
+      const updated = {
+        ...currentSlots,
+        allowed_start_time: start,
+        allowed_end_time: end,
+      };
+      setCurrentSlots(updated);
+      setAskAttachmentNow(true);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `stu-time-choice-${Date.now()}`,
+          sender: 'student',
+          text: `เวลา: ${timeText}`,
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+        {
+          id: `bot-attach-${Date.now()}`,
+          sender: 'bot',
+          text: 'บันทึกเวลาเรียบร้อยครับ ท่านมีเอกสารหลักฐานหรือรูปถ่ายใบนัดแพทย์ / แชทผู้ปกครองที่ต้องการแนบเพิ่มเติมหรือไม่ครับ?',
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: todayStr,
+          poweredBy: 'Google Gemini AI',
+          options: ATTACHMENT_OPTIONS,
+        },
+      ]);
+      return;
+    }
+
+    // I. Attachment Selection
+    if (opt.actionValue === 'attach_upload') {
+      fileInputRef.current?.click();
+      return;
+    }
+
+    if (opt.actionValue === 'attach_skip') {
+      setAskAttachmentNow(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `stu-skip-attach-${Date.now()}`,
+          sender: 'student',
+          text: 'ไม่มีเอกสารแนบครับ (ข้าม)',
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+        {
+          id: `bot-confirm-${Date.now()}`,
+          sender: 'bot',
+          text: `สรุปข้อมูลคำร้องขอออกนอกวิทยาลัย:\n• หมวดหมู่: ${currentSlots.reason || 'ธุระจำเป็น'}\n• สถานที่: ${currentSlots.destination_name || 'รพ.องครักษ์'}\n• เวลา: ${currentSlots.allowed_start_time || '12:00'} - ${currentSlots.allowed_end_time || 'ไม่กลับ'} น.\n\nยืนยันส่งคำร้องเข้าสู่สายพานการพิจารณา 5 ขั้นตอนหรือไม่ครับ?`,
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: todayStr,
+          poweredBy: 'Google Gemini AI',
+          options: CONFIRM_OPTIONS,
+        },
+      ]);
+      return;
+    }
+
+    // J. Confirm & Submit Request
+    if (opt.actionValue === 'confirm_send') {
+      await handleSend(undefined, false, undefined, 'ยืนยันยื่นคำร้องครับ');
+      return;
+    }
+
+    // K. FAQ Topics
+    if (opt.actionValue === 'faq_scan') {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `stu-faq-scan-${Date.now()}`,
+          sender: 'student',
+          text: 'วิธีสแกนใบหน้าเปิดไม้กั้นประตู 1',
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+        {
+          id: `bot-faq-ans-scan-${Date.now()}`,
+          sender: 'bot',
+          text: 'การสแกนใบหน้าเปิดไม้กั้น AI ใช้เทคโนโลยี MediaPipe FaceMesh ตรวจจับ 468 จุดใบหน้า โดยเมื่อคำร้องผ่านการอนุมัติครบ 5 ขั้นแล้ว สามารถเดินมาสแกนที่หน้ากล้อง ณ ป้อม รปภ. ประตู 1 ไม้กั้นจะเปิดอัตโนมัติครับ (มีระบบ Live Trip Mode และกล้องสดตรวจสอบพิกัด GPS ตลอดการเดินทาง)',
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: todayStr,
+          poweredBy: 'Google Gemini AI',
+          options: [{ label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' }],
+        },
+      ]);
+      return;
+    }
+
+    if (opt.actionValue === 'faq_time') {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `stu-faq-time-${Date.now()}`,
+          sender: 'student',
+          text: 'ตารางเวลาอนุญาตให้ออก-เข้าวิทยาลัย',
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+        {
+          id: `bot-faq-ans-time-${Date.now()}`,
+          sender: 'bot',
+          text: 'ช่วงเวลาที่ได้รับอนุญาตให้ออกนอกสถานศึกษา:\n• ช่วงพักเที่ยง: 12:00 - 13:00 น.\n• ช่วงบ่าย (กรณีมีธุระจำเป็นหรือพบแพทย์ตามนัด): 13:00 - 16:30 น.\nทั้งนี้ต้องผ่านการเห็นชอบจากครูผู้สอนประจำวิชา ครูที่ปรึกษา และงานปกครองครับ',
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: todayStr,
+          poweredBy: 'Google Gemini AI',
+          options: [{ label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' }],
+        },
+      ]);
+      return;
+    }
+
+    if (opt.actionValue === 'faq_rules') {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `stu-faq-rules-${Date.now()}`,
+          sender: 'student',
+          text: 'กฎและขั้นตอนการอนุมัติ 5 ระดับ',
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+        {
+          id: `bot-faq-ans-rules-${Date.now()}`,
+          sender: 'bot',
+          text: 'สายพานการพิจารณาคำร้อง 5 ระดับ:\n1. ครูประจำวิชา (ตรวจสอบเวลาเรียน)\n2. ครูที่ปรึกษา (รับทราบและยืนยัน)\n3. หัวหน้าแผนกวิชา (พิจารณาความเหมาะสม)\n4. เจ้าหน้าที่งานปกครอง (ตรวจสอบระเบียบวินัย)\n5. รองผู้อำนวยการฯ (อนุมัติขั้นสุดท้าย)\nเมื่ออนุมัติครบ ระบบจะส่งสิทธิ์ไปยังไม้กั้น AI ป้อม รปภ. ทันทีครับ',
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: todayStr,
+          poweredBy: 'Google Gemini AI',
+          options: [{ label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' }],
+        },
+      ]);
+      return;
+    }
   };
 
   // Fetch requests based on role with live polling & persistent clean chat history
@@ -598,7 +870,6 @@ function ChatContent() {
         const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
         if (isGuard) {
-          // Guard View
           const res = await fetch('/api/requests');
           const data = await res.json();
           if (data.success && data.requests && !isCancelled) {
@@ -628,7 +899,6 @@ function ChatContent() {
               return;
             }
 
-            // Initial load for Guard: Load history + check daily greeting
             let savedHistory: ChatMessage[] = [];
             const savedHistoryStr = typeof window !== 'undefined' ? localStorage.getItem(`sgp_chat_history_${currentUserId}`) : null;
             const lastGreetDate = typeof window !== 'undefined' ? localStorage.getItem(`sgp_last_greet_date_${currentUserId}`) : null;
@@ -658,7 +928,6 @@ function ChatContent() {
         }
 
         if (isApprover) {
-          // Approver view: fetch all requests waiting for this teacher's step
           const res = await fetch('/api/requests');
           const data = await res.json();
 
@@ -693,7 +962,6 @@ function ChatContent() {
               return;
             }
 
-            // Initial load for Approver: Clean screen, no dumped cards, check daily greeting
             let savedHistory: ChatMessage[] = [];
             const savedHistoryStr = typeof window !== 'undefined' ? localStorage.getItem(`sgp_chat_history_${currentUserId}`) : null;
             const lastGreetDate = typeof window !== 'undefined' ? localStorage.getItem(`sgp_last_greet_date_${currentUserId}`) : null;
@@ -715,7 +983,6 @@ function ChatContent() {
               }
             }
 
-            // Sync any existing requestCard in saved messages
             savedHistory = savedHistory.map((m) => {
               if (m.requestCard) {
                 const fresh = allReqs.find((r) => r.id === m.requestCard!.id);
@@ -759,7 +1026,6 @@ function ChatContent() {
           return;
         }
 
-        // Initial load for Student: Clean screen, no mock fake data, check daily greeting
         let savedHistory: ChatMessage[] = [];
         const savedHistoryStr = typeof window !== 'undefined' ? localStorage.getItem(`sgp_chat_history_${currentUserId}`) : null;
         const savedSlotsStr = typeof window !== 'undefined' ? localStorage.getItem(`sgp_chat_slots_${currentUserId}`) : null;
@@ -786,7 +1052,6 @@ function ChatContent() {
           }
         }
 
-        // If there is request card in saved history, sync with latest request
         if (data.success && data.requests && data.requests.length > 0) {
           const fresh = data.requests[0];
           savedHistory = savedHistory.map((m) =>
@@ -942,7 +1207,6 @@ function ChatContent() {
     if (!userText && !attachUrl && !skipAttachment) return;
     if (isSubmitting && !overrideAttachmentUrl) return;
 
-    // Check if user triggers map picker
     if (/เลือกบนแผนที่|ปักหมุด|เปิดแผนที่|พิกัด/i.test(userText) && !isApprover) {
       setShowMapPicker(true);
     }
@@ -950,11 +1214,10 @@ function ChatContent() {
     setInput('');
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // User explicitly sent message -> force scroll to bottom
     isUserNearBottomRef.current = true;
     setTimeout(() => scrollToBottom(true), 50);
 
-    // 1. If user is an Approver and typed approval words
+    // Approver typed approval words
     if (isApprover) {
       const isApproveCmd = /(อนุมัติ|อนุญาต|ผ่าน|ตกลง|ok|yes)/i.test(userText);
       const isRejectCmd = /(ไม่อนุมัติ|ปฏิเสธ|ไม่อนุญาต|ไม่ให้ไป|ตีกลับ)/i.test(userText);
@@ -990,7 +1253,7 @@ function ChatContent() {
       }
     }
 
-    // 2. Student Chat / General AI QA
+    // Student Chat / General AI QA
     let bubbleText = userText;
     if (skipAttachment && !bubbleText) {
       bubbleText = 'ไม่มีเอกสารแนบครับ (ข้ามขั้นตอนแนบ)';
@@ -1037,7 +1300,9 @@ function ChatContent() {
 
       const data = await res.json();
       if (data.success) {
+        let newSlots = currentSlots;
         if (data.slots) {
+          newSlots = data.slots;
           setCurrentSlots(data.slots);
         }
 
@@ -1047,12 +1312,30 @@ function ChatContent() {
           setAskAttachmentNow(true);
         }
 
+        // Determine next in-chat options depending on missing slots
+        let nextOptions: ChatOption[] | undefined = undefined;
+        if (!isApprover && !isGuard) {
+          if (!newSlots.category) {
+            nextOptions = CATEGORY_OPTIONS;
+          } else if (!newSlots.destination_name) {
+            nextOptions = DESTINATION_OPTIONS;
+          } else if (!newSlots.allowed_start_time) {
+            nextOptions = TIME_OPTIONS;
+          } else if (data.ask_attachment_now || (!newSlots.attachment_path && !skipAttachment)) {
+            nextOptions = ATTACHMENT_OPTIONS;
+          } else {
+            nextOptions = CONFIRM_OPTIONS;
+          }
+        }
+
         if (data.request) {
           setLatestRequest(data.request);
           setCurrentSlots({});
           setMissingSlots([]);
           setSelectedAttachmentUrl(null);
           setShowMapPicker(false);
+          nextOptions = [{ label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' }];
+
           playNotificationSound();
           sendSystemNotification({
             title: `🔔 ยื่นคำร้องสำเร็จ: ${data.request.request_code}`,
@@ -1078,6 +1361,7 @@ function ChatContent() {
             poweredBy: data.poweredBy,
             attachmentUrl: data.slots?.attachment_path || undefined,
             requestCard: data.request || undefined,
+            options: nextOptions,
           },
         ]);
       } else {
@@ -1093,6 +1377,7 @@ function ChatContent() {
             sender: 'bot',
             text: 'ระบบ AI ใช้เวลาตอบสนองนานเกินกำหนด กรุณาลองส่งข้อความใหม่อีกครั้งครับ',
             time: nowTime,
+            options: [{ label: '🏠 กลับสู่เมนูหลัก', actionValue: 'act_main_menu', variant: 'home' }],
           },
         ]);
       }
@@ -1281,126 +1566,31 @@ function ChatContent() {
                           ✦ {m.poweredBy}
                         </span>
                       )}
-                    </div>
-                  )}
 
-                  {/* 3 Main Categories Guided Menu Card ([9.4] Pillar 1) */}
-                  {m.categoryMenu && !isApprover && !isGuard && (
-                    <div className="mt-3 space-y-2 w-full max-w-md animate-fadeIn">
-                      <button
-                        type="button"
-                        onClick={() => handleCategorySelect('leave')}
-                        disabled={isSubmitting}
-                        className="w-full p-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl shadow-sm text-left flex items-center justify-between group transition-all active:scale-[0.99] cursor-pointer"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0 text-white">
-                            <DoorOpen className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <div className="font-bold text-xs sm:text-sm">🚪 ขออนุญาตออกนอกวิทยาลัย</div>
-                            <div className="text-[11px] text-blue-100 opacity-90 mt-0.5">
-                              ยื่นคำร้องผ่านระบบ AI 5 ขั้นตอน พร้อมเปิดไม้กั้นอัตโนมัติ
-                            </div>
-                          </div>
+                      {/* In-Chat Capsule Option Buttons (Horizontal wrapping under AI message) */}
+                      {m.options && m.options.length > 0 && !isApprover && !isGuard && (
+                        <div className="flex flex-wrap items-center gap-2 mt-2.5 pt-2 border-t border-slate-100 select-none animate-fadeIn">
+                          {m.options.map((opt, oIdx) => (
+                            <button
+                              key={oIdx}
+                              type="button"
+                              onClick={() => handleOptionClick(m.id, opt)}
+                              disabled={isSubmitting}
+                              className={`px-3 py-1.5 rounded-full text-xs font-semibold shadow-2xs border transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                                opt.variant === 'primary'
+                                  ? 'bg-[#0077D7] hover:bg-[#0066CC] text-white border-transparent shadow-xs'
+                                  : opt.variant === 'success'
+                                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-transparent shadow-xs'
+                                  : opt.variant === 'home'
+                                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                  : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-slate-300'
+                              }`}
+                            >
+                              <span>{opt.label}</span>
+                            </button>
+                          ))}
                         </div>
-                        <ChevronRight className="w-4 h-4 text-white/70 group-hover:translate-x-0.5 transition-transform" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleCategorySelect('status')}
-                        disabled={isSubmitting}
-                        className="w-full p-3.5 bg-white hover:bg-slate-50 border border-slate-200/80 rounded-2xl shadow-2xs text-left flex items-center justify-between group transition-all active:scale-[0.99] cursor-pointer"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-                            <ClipboardList className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <div className="font-bold text-xs sm:text-sm text-slate-800">📋 ติดตามสถานะคำร้องของฉัน</div>
-                            <div className="text-[11px] text-slate-500 mt-0.5">
-                              ตรวจสอบผลการพิจารณา 5 ขั้น และคิวอนุมัติแบบเรียลไทม์
-                            </div>
-                          </div>
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleCategorySelect('faq')}
-                        disabled={isSubmitting}
-                        className="w-full p-3.5 bg-white hover:bg-slate-50 border border-slate-200/80 rounded-2xl shadow-2xs text-left flex items-center justify-between group transition-all active:scale-[0.99] cursor-pointer"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
-                            <HelpCircle className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <div className="font-bold text-xs sm:text-sm text-slate-800">❓ คำถามที่พบบ่อย (FAQ)</div>
-                            <div className="text-[11px] text-slate-500 mt-0.5">
-                              วิธีสแกนใบหน้า 468 จุด, ตารางเวลาเข้า-ออก, กฎการอนุมัติ 5 ขั้น
-                            </div>
-                          </div>
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-                      </button>
-                    </div>
-                  )}
-
-                  {/* FAQ Quick Buttons List */}
-                  {m.faqList && !isApprover && !isGuard && (
-                    <div className="mt-2 space-y-2 w-full max-w-md animate-fadeIn">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleSelectFAQ(
-                            'วิธีสแกนใบหน้าเปิดไม้กั้น AI',
-                            'การสแกนใบหน้าเปิดไม้กั้น AI ใช้เทคโนโลยี MediaPipe FaceMesh ตรวจจับ 468 จุดใบหน้า โดยเมื่อคำร้องผ่านการอนุมัติครบ 5 ขั้นแล้ว สามารถเดินมาสแกนที่หน้ากล้อง ณ ป้อม รปภ. ประตู 1 ไม้กั้นจะเปิดอัตโนมัติครับ (มีระบบ Live Trip Mode และกล้องสดตรวจสอบพิกัด GPS ตลอดการเดินทาง)'
-                          )
-                        }
-                        className="w-full p-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-left text-xs text-slate-800 font-medium flex items-center justify-between shadow-2xs cursor-pointer transition-all active:scale-95"
-                      >
-                        <span>🔒 วิธีสแกนใบหน้าเปิดไม้กั้นประตู 1</span>
-                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleSelectFAQ(
-                            'ตารางเวลาอนุญาตให้ออก-เข้าวิทยาลัย',
-                            'ช่วงเวลาที่ได้รับอนุญาตให้ออกนอกสถานศึกษา:\n• ช่วงพักเที่ยง: 12:00 - 13:00 น.\n• ช่วงบ่าย (กรณีมีธุระจำเป็นหรือพบแพทย์ตามนัด): 13:00 - 16:30 น.\nทั้งนี้ต้องผ่านการเห็นชอบจากครูผู้สอนประจำวิชา ครูที่ปรึกษา และงานปกครองครับ'
-                          )
-                        }
-                        className="w-full p-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-left text-xs text-slate-800 font-medium flex items-center justify-between shadow-2xs cursor-pointer transition-all active:scale-95"
-                      >
-                        <span>⏰ ตารางเวลาอนุญาตให้ออก-เข้าวิทยาลัย</span>
-                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleSelectFAQ(
-                            'กฎและขั้นตอนการพิจารณาอนุมัติ 5 ระดับ',
-                            'สายพานการพิจารณาคำร้อง 5 ระดับ:\n1. ครูประจำวิชา (ตรวจสอบเวลาเรียน)\n2. ครูที่ปรึกษา (รับทราบและยืนยัน)\n3. หัวหน้าแผนกวิชา (พิจารณาความเหมาะสม)\n4. เจ้าหน้าที่งานปกครอง (ตรวจสอบระเบียบวินัย)\n5. รองผู้อำนวยการฯ (อนุมัติขั้นสุดท้าย)\nเมื่ออนุมัติครบ ระบบจะส่งสิทธิ์ไปยังไม้กั้น AI ป้อม รปภ. ทันทีครับ'
-                          )
-                        }
-                        className="w-full p-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-left text-xs text-slate-800 font-medium flex items-center justify-between shadow-2xs cursor-pointer transition-all active:scale-95"
-                      >
-                        <span>🛡️ กฎและขั้นตอนการอนุมัติ 5 ระดับ</span>
-                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleReturnToMainMenu}
-                        className="w-full p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-center text-xs font-semibold cursor-pointer transition-all"
-                      >
-                        <span>🏠 กลับสู่เมนูหลัก</span>
-                      </button>
+                      )}
                     </div>
                   )}
 
@@ -1418,7 +1608,7 @@ function ChatContent() {
                         <span className="font-mono text-white/80 text-[11px]">{m.requestCard.request_code}</span>
                       </div>
 
-                      {/* Student Info Box (Important for Approver) */}
+                      {/* Student Info Box */}
                       <div className="bg-white/10 rounded-2xl p-2.5 border border-white/15">
                         <div className="flex items-center justify-between text-xs font-bold text-white mb-0.5">
                           <span>👤 {m.requestCard.student_name || 'นายอัครชา เปมะวิภาต'}</span>
@@ -1434,7 +1624,7 @@ function ChatContent() {
                         )}
                       </div>
 
-                      {/* 3-Point Evidence Timeline ([9.4] & [9.8]) */}
+                      {/* 3-Point Evidence Timeline */}
                       <div className="bg-white/10 rounded-2xl p-3 border border-white/15 space-y-2">
                         <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-white/15 pb-1.5">
                           <CheckCircle2 className="w-3.5 h-3.5 text-cyan-300" />
@@ -1674,7 +1864,7 @@ function ChatContent() {
         );
       })}
 
-        {/* Interactive Leaflet Map Picker inside chat ([9.4] Pillar 2) */}
+        {/* Interactive Leaflet Map Picker inside chat */}
         {!isApprover && !isGuard && showMapPicker && (
           <div className="my-2 px-1 animate-fadeIn">
             <ChatMapPicker
@@ -1737,7 +1927,7 @@ function ChatContent() {
 
       {/* Floating Jump-to-Bottom Button */}
       {showScrollBottomBtn && (
-        <div className="sticky bottom-36 z-30 flex justify-center pointer-events-none mb-2">
+        <div className="sticky bottom-20 z-30 flex justify-center pointer-events-none mb-2">
           <button
             type="button"
             onClick={() => scrollToBottom(true)}
@@ -1749,198 +1939,7 @@ function ChatContent() {
         </div>
       )}
 
-      {/* Dynamic Context-Aware Quick Chips Bar ([9.4] Pillar 2) */}
-      {!isApprover && !isGuard && (
-        <div className="px-3 py-2 bg-[#F4F7FB] border-t border-slate-200/70 overflow-x-auto no-scrollbar">
-          <div className="w-full max-w-4xl mx-auto flex items-center gap-1.5 shrink-0">
-            {/* Reset to main menu button */}
-            <button
-              type="button"
-              onClick={handleReturnToMainMenu}
-              className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-full text-[11px] font-semibold flex items-center gap-1 shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
-              title="กลับสู่หน้าเลือกหมวดหมู่หลัก"
-            >
-              <span>🏠 เมนูหลัก</span>
-            </button>
-
-            {/* Dynamic chips based on current step */}
-            {!currentSlots.category ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => handleSelectCategoryPill('medical')}
-                  disabled={isSubmitting}
-                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-full text-[11px] font-semibold flex items-center gap-1 shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
-                >
-                  <span>🏥 พบแพทย์ / ป่วย</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectCategoryPill('personal')}
-                  disabled={isSubmitting}
-                  className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-full text-[11px] font-semibold flex items-center gap-1 shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
-                >
-                  <span>🧳 ธุระส่วนตัว</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectCategoryPill('department')}
-                  disabled={isSubmitting}
-                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold flex items-center gap-1 shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
-                >
-                  <span>📁 ธุระแผนกวิชา</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectCategoryPill('parent_pickup')}
-                  disabled={isSubmitting}
-                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-full text-[11px] font-semibold flex items-center gap-1 shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
-                >
-                  <span>🚗 ผู้ปกครองมารับ</span>
-                </button>
-              </>
-            ) : !currentSlots.destination_name ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setShowMapPicker(true)}
-                  className="px-3.5 py-1.5 bg-[#0077D7] hover:bg-[#0066CC] text-white rounded-full text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-xs cursor-pointer transition-all active:scale-95"
-                >
-                  <MapPin className="w-3.5 h-3.5" />
-                  <span>📍 เลือกบนแผนที่ Leaflet</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSend(undefined, false, undefined, 'โรงพยาบาลองครักษ์')}
-                  disabled={isSubmitting}
-                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
-                >
-                  <span>🏥 รพ.องครักษ์</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSend(undefined, false, undefined, 'ตลาดองครักษ์')}
-                  disabled={isSubmitting}
-                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
-                >
-                  <span>🛍️ ตลาดองครักษ์</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSend(undefined, false, undefined, 'บ้านพักอาศัย (คลอง 15)')}
-                  disabled={isSubmitting}
-                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
-                >
-                  <span>🏠 คลอง 15</span>
-                </button>
-              </>
-            ) : !currentSlots.allowed_start_time ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => handleSend(undefined, false, undefined, 'ขอออกช่วงพักเที่ยง 12:00 - ไม่กลับเข้าวิทยาลัยครับ')}
-                  disabled={isSubmitting}
-                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
-                >
-                  <span>⏰ 12:00 - ไม่กลับ</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSend(undefined, false, undefined, 'ขอออกช่วง 12:00 - 13:00 น. ครับ')}
-                  disabled={isSubmitting}
-                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
-                >
-                  <span>⏰ 12:00 - 13:00 น.</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSend(undefined, false, undefined, 'ขอออกช่วง 13:00 - 16:30 น. ครับ')}
-                  disabled={isSubmitting}
-                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
-                >
-                  <span>⏰ 13:00 - 16:30 น.</span>
-                </button>
-              </>
-            ) : !currentSlots.attachment_path && askAttachmentNow ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-3.5 py-1.5 bg-[#0077D7] hover:bg-[#0066CC] text-white rounded-full text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-xs cursor-pointer transition-all active:scale-95"
-                >
-                  <Paperclip className="w-3.5 h-3.5" />
-                  <span>📎 อัปโหลดรูปใบนัด / แชทผู้ปกครอง</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSend(undefined, true)}
-                  disabled={isSubmitting}
-                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
-                >
-                  <span>⏩ ไม่มีเอกสารแนบ (ข้าม)</span>
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => handleSend(undefined, false, undefined, 'ยืนยันยื่นคำร้องครับ')}
-                  disabled={isSubmitting}
-                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-xs cursor-pointer transition-all active:scale-95"
-                >
-                  <span>✓ ยืนยันยื่นคำร้อง</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleResetChat}
-                  disabled={isSubmitting}
-                  className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-full text-[11px] font-semibold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-95"
-                >
-                  <span>✕ เริ่มต้นใหม่</span>
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Approver Quick Action Bar */}
-      {isApprover && (
-        <div className="px-3 py-1.5 bg-slate-900 text-white border-t border-slate-800">
-          <div className="w-full max-w-4xl mx-auto flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-            <span className="text-[10px] font-bold text-emerald-400 shrink-0">คำสั่งครูด่วน:</span>
-
-            {pendingRequests.length > 0 && (
-              <button
-                type="button"
-                onClick={() => handleSend(undefined, false, undefined, 'อนุมัติครับ')}
-                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-full text-[11px] font-bold shrink-0 shadow-sm flex items-center gap-1 transition-all cursor-pointer"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>✓ อนุมัติคำร้องล่าสุด</span>
-              </button>
-            )}
-
-            <Link
-              href="/approver"
-              className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-full text-[11px] font-medium shrink-0 flex items-center gap-1 transition-all"
-            >
-              <UserCheck className="w-3.5 h-3.5 text-blue-300" />
-              <span>ดูรายการทั้งหมด ({pendingRequests.length})</span>
-            </Link>
-
-            <button
-              type="button"
-              onClick={() => handleSend(undefined, false, undefined, 'สรุปคำร้องที่รอการอนุมัติวันนี้')}
-              className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-full text-[11px] font-medium shrink-0 transition-all cursor-pointer"
-            >
-              📊 สรุปยอดคำร้อง
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Bottom Input Field Bar */}
+      {/* Bottom Input Field Bar (Clean - Zero buttons above keyboard) */}
       <div className="p-3 bg-white border-t border-slate-200/80 sticky bottom-16 z-30">
         <div className="w-full max-w-4xl mx-auto">
           <form onSubmit={(e) => handleSend(e, false)} className="flex items-center gap-2">
@@ -1962,7 +1961,7 @@ function ChatContent() {
             placeholder={
               isApprover
                 ? 'พิมพ์ "อนุมัติ", "ไม่อนุมัติ" หรือสอบถามระบบได้เลย...'
-                : 'พิมพ์คุยกับน้องเกต AI หรือเลือกหัวขอด้านบน...'
+                : 'พิมพ์คุยกับน้องเกต AI หรือเลือกหัวข้อด้านบน...'
             }
             className="flex-1 py-2.5 px-4 bg-slate-100 border border-slate-200/60 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0066CC]/20 focus:border-[#0066CC] transition-all"
           />
