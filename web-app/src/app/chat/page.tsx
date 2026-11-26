@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ChevronLeft,
+  ChevronRight,
   Sparkles,
   Send,
   Paperclip,
@@ -79,7 +80,7 @@ const CATEGORY_OPTIONS: ChatOption[] = [
 ];
 
 const DESTINATION_OPTIONS: ChatOption[] = [
-  { label: '📍 เลือกบนแผนที่ Leaflet', actionValue: 'dest_map', variant: 'primary' },
+  { label: '📍 เลือกบนแผนที่ GPS', actionValue: 'dest_map', variant: 'primary' },
   { label: '🏥 รพ.องครักษ์', actionValue: 'dest_hospital', variant: 'default' },
   { label: '🛍️ ตลาดองครักษ์', actionValue: 'dest_market', variant: 'default' },
   { label: '🏠 คลอง 15', actionValue: 'dest_klong15', variant: 'default' },
@@ -626,7 +627,7 @@ function ChatContent() {
         {
           id: `bot-dest-${Date.now()}`,
           sender: 'bot',
-          text: 'รับทราบหมวดหมู่เรียบร้อยครับ กรุณาระบุพิกัดสถานที่ปลายทางและช่วงเวลาเดินทางในแผนที่ Leaflet ด้านล่างได้เลยครับ:',
+          text: 'รับทราบหมวดหมู่เรียบร้อยครับ กรุณาระบุพิกัดสถานที่ปลายทางและช่วงเวลาเดินทางในแผนที่ GPS ด้านล่างได้เลยครับ (สามารถพิมพ์ค้นหาหรือลากหมุดได้อย่างอิสระ):',
           time: nowTime,
           timestamp: Date.now() + 50,
           dateStr: todayStr,
@@ -637,7 +638,7 @@ function ChatContent() {
       return;
     }
 
-    // F. Destination Selection: Leaflet Map Trigger
+    // F. Destination Selection: GPS Map Trigger
     if (opt.actionValue === 'dest_map') {
       setShowMapPicker(true);
       setMessages((prev) => [
@@ -645,7 +646,7 @@ function ChatContent() {
         {
           id: `stu-map-${Date.now()}`,
           sender: 'student',
-          text: '📍 เลือกบนแผนที่ Leaflet',
+          text: '📍 ปักหมุดบนแผนที่ GPS',
           time: nowTime,
           timestamp: Date.now(),
           dateStr: todayStr,
@@ -653,7 +654,7 @@ function ChatContent() {
         {
           id: `bot-map-open-${Date.now()}`,
           sender: 'bot',
-          text: 'กำลังเปิดแผนที่ Leaflet ในห้องแชท กรุณาเลื่อนหมุดหรือเลือกพิกัดที่ต้องการ แล้วกด [ยืนยันพิกัดสถานที่นี้] ครับ',
+          text: 'กำลังเปิดแผนที่ GPS ในห้องแชท กรุณาพิมพ์ค้นหาสถานที่หรือเลื่อนหมุดตามต้องการ แล้วกด [ยืนยันพิกัดจุดหมาย & ช่วงเวลา] ด้านล่างได้เลยครับ',
           time: nowTime,
           timestamp: Date.now() + 50,
           dateStr: todayStr,
@@ -1625,28 +1626,48 @@ function ChatContent() {
                         </span>
                       )}
 
-                      {/* In-Chat Capsule Option Buttons (Shown ONLY on the active message under AI bubble) */}
+                      {/* In-Chat Option Cards (Shown ONLY on the active message under AI bubble, matching Image 2) */}
                       {activeOptions && activeOptions.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-2 mt-2.5 pt-2 border-t border-slate-100 select-none animate-fadeIn">
-                          {activeOptions.map((opt, oIdx) => (
-                            <button
-                              key={oIdx}
-                              type="button"
-                              onClick={() => handleOptionClick(m.id, opt)}
-                              disabled={isSubmitting}
-                              className={`px-3 py-1.5 rounded-full text-xs font-semibold shadow-2xs border transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                                opt.variant === 'primary'
-                                  ? 'bg-[#0077D7] hover:bg-[#0066CC] text-white border-transparent shadow-xs'
-                                  : opt.variant === 'success'
-                                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-transparent shadow-xs'
-                                  : opt.variant === 'home'
-                                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                                  : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-slate-300'
-                              }`}
-                            >
-                              <span>{opt.label}</span>
-                            </button>
-                          ))}
+                        <div className="space-y-2 mt-3 pt-2.5 border-t border-slate-100 select-none animate-fadeIn">
+                          {/* Regular options rendered as vertical cards with ChevronRight */}
+                          <div className="space-y-1.5">
+                            {activeOptions
+                              .filter((opt) => opt.variant !== 'home')
+                              .map((opt, oIdx) => (
+                                <button
+                                  key={oIdx}
+                                  type="button"
+                                  onClick={() => handleOptionClick(m.id, opt)}
+                                  disabled={isSubmitting}
+                                  className={`w-full text-left py-2.5 px-3.5 rounded-2xl text-xs font-semibold shadow-2xs border transition-all active:scale-[0.98] cursor-pointer flex items-center justify-between gap-2 group ${
+                                    opt.variant === 'primary'
+                                      ? 'bg-gradient-to-r from-[#0077D7] to-[#0066CC] hover:from-[#0066CC] hover:to-[#0055AA] text-white border-transparent shadow-xs'
+                                      : opt.variant === 'success'
+                                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white border-transparent shadow-xs'
+                                      : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-blue-300'
+                                  }`}
+                                >
+                                  <span className="truncate">{opt.label}</span>
+                                  <ChevronRight className="w-4 h-4 opacity-50 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all shrink-0" />
+                                </button>
+                              ))}
+                          </div>
+
+                          {/* Home button (Centered at bottom, like Image 2 and Image 3) */}
+                          {activeOptions
+                            .filter((opt) => opt.variant === 'home')
+                            .map((opt, oIdx) => (
+                              <div key={`home-${oIdx}`} className="flex justify-center pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOptionClick(m.id, opt)}
+                                  disabled={isSubmitting}
+                                  className="px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 hover:border-slate-300 transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                                >
+                                  <span>{opt.label}</span>
+                                </button>
+                              </div>
+                            ))}
                         </div>
                       )}
                     </div>

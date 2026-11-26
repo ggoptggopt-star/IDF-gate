@@ -76,14 +76,47 @@ export default function ChatMapPicker({
   const [activeCategory, setActiveCategory] = useState<'all' | 'hospital' | 'convenience' | 'market' | 'home' | 'temple' | 'school' | 'gov'>('all');
   const [selectedSubdistrict, setSelectedSubdistrict] = useState<string>('all');
 
+  // Longdo Map Key configuration
+  const [longdoKey, setLongdoKey] = useState<string>('');
+  const [tempKeyInput, setTempKeyInput] = useState<string>('');
+  const [showKeyConfig, setShowKeyConfig] = useState<boolean>(false);
+  const [hasLongdoConnected, setHasLongdoConnected] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedKey = localStorage.getItem('sgp_longdo_map_key') || '';
+      if (savedKey) {
+        setLongdoKey(savedKey);
+        setTempKeyInput(savedKey);
+        setHasLongdoConnected(true);
+      }
+    }
+  }, []);
+
+  const handleSaveLongdoKey = () => {
+    const trimmed = tempKeyInput.trim();
+    setLongdoKey(trimmed);
+    if (typeof window !== 'undefined') {
+      if (trimmed) {
+        localStorage.setItem('sgp_longdo_map_key', trimmed);
+        setHasLongdoConnected(true);
+      } else {
+        localStorage.removeItem('sgp_longdo_map_key');
+        setHasLongdoConnected(false);
+      }
+    }
+    setShowKeyConfig(false);
+  };
+
   // Map layer: 'satellite' (Google Maps Hybrid) vs 'roadmap' (Google Maps Roads)
   const [mapLayer, setMapLayer] = useState<'satellite' | 'roadmap'>('satellite');
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<VerifiedLocation[]>([]);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [aiInterpretation, setAiInterpretation] = useState<string | null>(null);
 
   const [gpsLoading, setGpsLoading] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
@@ -275,19 +308,46 @@ export default function ChatMapPicker({
     );
   };
 
-  // Instant Real-Time Search Handler (Zero Hallucination)
+  // Instant Real-Time Search Handler (Zero Hallucination + Longdo Map)
+  const searchTimeoutRef = useRef<any>(null);
+
   const handleSearchChange = (text: string) => {
     setSearchQuery(text);
     setSearchError(null);
 
     if (!text.trim()) {
       setSearchResults([]);
+      setAiInterpretation(null);
       return;
     }
 
-    // Immediate local search from verified database
-    const matched = searchVerifiedLocations(text);
-    setSearchResults(matched);
+    // 1. Immediate local search from verified Ongkharak database
+    const localMatched = searchVerifiedLocations(text);
+    setSearchResults(localMatched);
+
+    // 2. Query Longdo Map Search + AI with 350ms debounce
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/geocode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: text.trim(),
+            longdoKey,
+            userLat: selectedLat,
+            userLng: selectedLng,
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.results && data.results.length > 0) {
+          setSearchResults(data.results);
+          setAiInterpretation(data.aiInterpretation || null);
+        }
+      } catch (err) {
+        // keep local results
+      }
+    }, 350);
   };
 
   const handleSearchSubmit = async (e?: React.FormEvent) => {
@@ -295,32 +355,32 @@ export default function ChatMapPicker({
     const query = searchQuery.trim();
     if (!query) return;
 
-    // 1. Check local verified database first
-    const localMatch = searchVerifiedLocations(query);
-    if (localMatch.length > 0) {
-      setSearchResults(localMatch);
-      const top = localMatch[0];
-      updatePin(top.lat, top.lng, top.name, top.isReturn, top.address);
-      return;
-    }
-
-    // 2. Query backend geocoder (for Google Maps URLs or OSM)
     setIsSearching(true);
     try {
       const res = await fetch('/api/geocode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({
+          query,
+          longdoKey,
+          userLat: selectedLat,
+          userLng: selectedLng,
+        }),
       });
       const data = await res.json();
+      if (data.hasLongdoKey) {
+        setHasLongdoConnected(true);
+      }
       if (data.success && data.results && data.results.length > 0) {
+        setSearchResults(data.results);
+        setAiInterpretation(data.aiInterpretation || null);
         const top = data.results[0];
         updatePin(top.lat, top.lng, top.name, top.isReturn, top.address);
       } else {
         setSearchError(data.error || `ไม่พบ "${query}" แนะนำเลือกสถานที่จากรายการด้านล่าง หรือแตะลากหมุดบนแผนที่ดาวเทียมได้เลยครับ`);
       }
     } catch (err) {
-      setSearchError('ไม่พบสถานที่ ลองแตะเลือกบนภาพถ่ายดาวเทียม Google Maps ได้โดยตรงครับ');
+      setSearchError('ไม่สามารถเชื่อมต่อระบบค้นหาได้ชั่วคราว ลองแตะเลือกบนภาพถ่ายดาวเทียม Google Maps ได้โดยตรงครับ');
     } finally {
       setIsSearching(false);
     }
@@ -403,8 +463,72 @@ export default function ChatMapPicker({
         </div>
       </div>
 
-      {/* 1. Real-Time Instant Search Box */}
+      {/* 1. Longdo Map Key Setup & Status Pill */}
       <div className="space-y-1.5">
+        <div className="flex items-center justify-between px-1 text-[10px]">
+          <div className="flex items-center gap-1.5">
+            {hasLongdoConnected ? (
+              <span className="flex items-center gap-1 font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>🇹🇭 ค้นหาผ่าน Longdo Map (ค้นหาได้ทั่วไทย 100%)</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowKeyConfig(!showKeyConfig)}
+                className="flex items-center gap-1 text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-md border border-blue-200 font-medium transition-colors"
+              >
+                <span>🔑 ใส่ Longdo Map Key (ฟรี) เพื่อค้นหาได้ทุกจุดในไทย</span>
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowKeyConfig(!showKeyConfig)}
+            className="text-slate-500 hover:text-slate-700 underline text-[10px]"
+          >
+            {showKeyConfig ? 'ปิดหน้าต่าง' : hasLongdoConnected ? '⚙️ แก้ไข Key' : '⚙️ วิธีรับ Key ฟรี'}
+          </button>
+        </div>
+
+        {/* Inline Longdo Key Config Accordion */}
+        {showKeyConfig && (
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-blue-200 space-y-1.5 animate-fadeIn">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[11px] text-blue-900">ตั้งค่า Longdo Map API Key:</span>
+              <a
+                href="https://map.longdo.com/console"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] text-blue-600 hover:text-blue-800 flex items-center gap-0.5 underline font-medium"
+              >
+                <span>สมัครรับ Key ฟรี 1 นาที (ไม่ต้องใช้บัตร)</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={tempKeyInput}
+                onChange={(e) => setTempKeyInput(e.target.value)}
+                placeholder="วาง Longdo Map API Key ที่นี่..."
+                className="flex-1 px-2.5 py-1 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 font-mono"
+              />
+              <button
+                type="button"
+                onClick={handleSaveLongdoKey}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shrink-0 transition-colors"
+              >
+                บันทึก
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500">
+              * คีย์ฟรีของ Longdo Map ค้นหาได้ 100,000 ครั้ง/เดือน เพียงพอสำหรับทั้งวิทยาลัยตลอดไป
+            </p>
+          </div>
+        )}
+
+        {/* Search Input Form */}
         <form onSubmit={handleSearchSubmit} className="flex items-center gap-1.5">
           <div className="relative flex-1">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -412,7 +536,7 @@ export default function ChatMapPicker({
               type="text"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="พิมพ์ชื่อ เซเว่น, โลตัส, คลินิก, รพ, มศว, ตลาด..."
+              placeholder="พิมพ์ชื่อ เซเว่น, โลตัส, คลินิก, รพ, มศว, ร้านค้า, ซอย..."
               className="w-full pl-8 pr-8 py-1.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:outline-none text-[11px] text-slate-800 placeholder:text-slate-400 transition-colors"
             />
             {searchQuery && (
@@ -439,35 +563,52 @@ export default function ChatMapPicker({
           </button>
         </form>
 
-        {/* Search Results Dropdown (Immediate Exact Match) */}
+        {/* AI Query Interpretation Badge */}
+        {aiInterpretation && (
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 rounded-xl px-2.5 py-1.5 text-[10px] text-blue-800 font-semibold flex items-center gap-1.5 animate-fadeIn">
+            <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span>{aiInterpretation}</span>
+          </div>
+        )}
+
+        {/* Search Results Dropdown (Immediate Exact Match + Nearest Proximity) */}
         {searchResults.length > 0 && (
           <div className="space-y-1 bg-blue-50/80 p-2 rounded-xl border border-blue-200 animate-fadeIn">
             <div className="flex items-center justify-between text-[10px] text-blue-900 font-bold px-0.5">
-              <span>สถานที่จริงที่ตรงกัน (แตะเพื่อปักหมุดทันที):</span>
-              <span className="text-blue-600">พบ {searchResults.length} แห่ง</span>
+              <span>สถานที่จริง (เรียงจากใกล้ที่สุดก่อน):</span>
+              <span className="text-blue-600 font-normal">พบ {searchResults.length} แห่ง</span>
             </div>
-            <div className="flex flex-col gap-1 max-h-40 overflow-y-auto pr-1">
-              {searchResults.map((loc) => {
-                const locDist = calcDistanceKm(OICEC_COLLEGE.lat, OICEC_COLLEGE.lng, loc.lat, loc.lng);
+            <div className="flex flex-col gap-1 max-h-44 overflow-y-auto pr-1">
+              {searchResults.map((loc, idx) => {
+                const locDist = typeof loc.distance === 'number' ? loc.distance : calcDistanceKm(OICEC_COLLEGE.lat, OICEC_COLLEGE.lng, loc.lat, loc.lng);
                 return (
                   <button
-                    key={loc.id}
+                    key={loc.id || idx}
                     type="button"
                     onClick={() => {
                       updatePin(loc.lat, loc.lng, loc.name, loc.isReturn, loc.address);
                       setSearchResults([]);
                       setSearchQuery(loc.name);
                     }}
-                    className="w-full text-left p-2 rounded-lg bg-white hover:bg-blue-100 border border-slate-200 hover:border-blue-300 transition-all flex items-start gap-2 shadow-2xs group"
+                    className={`w-full text-left p-2 rounded-lg border transition-all flex items-start gap-2 shadow-2xs group ${
+                      loc.isNearest
+                        ? 'bg-emerald-50 hover:bg-emerald-100/80 border-emerald-300'
+                        : 'bg-white hover:bg-blue-100 border-slate-200 hover:border-blue-300'
+                    }`}
                   >
-                    <span className="text-base shrink-0 mt-0.5">{loc.icon}</span>
+                    <span className="text-base shrink-0 mt-0.5">{loc.icon || '📍'}</span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-1">
-                        <p className="font-semibold text-slate-900 text-[11px] truncate group-hover:text-blue-700">
-                          {loc.name}
+                        <p className="font-semibold text-slate-900 text-[11px] truncate group-hover:text-blue-700 flex items-center gap-1.5">
+                          <span>{loc.name}</span>
+                          {loc.isNearest && (
+                            <span className="text-[9px] bg-emerald-600 text-white px-1.5 py-0.2 rounded-full font-bold shrink-0">
+                              ใกล้ที่สุด ⭐
+                            </span>
+                          )}
                         </p>
                         <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-mono shrink-0">
-                          {locDist} กม.
+                          {locDist} กม. {loc.source === 'longdo' ? '• 🇹🇭 Longdo' : ''}
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-500 truncate">{loc.address}</p>
