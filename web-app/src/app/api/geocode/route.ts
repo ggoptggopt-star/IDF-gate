@@ -321,33 +321,58 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4. Query Longdo Map Search API safely
+    // 4. Query Longdo Map Search API safely (Official Thailand POI database)
     let longdoResults: any[] = [];
     if (hasLongdoKey) {
       longdoResults = await searchLongdoMap(rawQuery, longdoKey, userLat, userLng);
     }
 
-    // 5. Local college landmarks match (e.g. "บ้านพักบุคลากร", "หอพักใน", "ป้อมยาม")
-    const localMatched: any[] = [];
-    for (const term of searchTerms) {
-      const hits = searchVerifiedLocations(term);
-      for (const loc of hits) {
-        const dist = calcDistanceKm(userLat, userLng, loc.lat, loc.lng);
-        localMatched.push({
-          name: loc.name,
-          lat: loc.lat,
-          lng: loc.lng,
-          address: loc.address,
-          icon: loc.icon,
-          isReturn: loc.isReturn !== undefined ? loc.isReturn : 1,
-          distance: dist,
-          source: 'verified',
-        });
-      }
-    }
+    // 5. Candidate selection:
+    // If Longdo has real results, prioritize them 100%!
+    // Only prepend college-internal locations if query specifically asks for college buildings
+    let candidates: any[] = [];
+    const lowerQ = rawQuery.toLowerCase();
 
-    // Combine Longdo + Local exact matches (zero duplicate)
-    const candidates = [...localMatched, ...longdoResults];
+    if (
+      lowerQ.includes('บุคลากร') ||
+      lowerQ.includes('บ้านพักครู') ||
+      lowerQ.includes('หอพักใน') ||
+      lowerQ.includes('ป้อมยาม') ||
+      lowerQ.includes('วก.องครักษ์') ||
+      lowerQ.includes('วิทยาลัยการอาชีพองครักษ์')
+    ) {
+      const internalCollegeHits = VERIFIED_LOCATIONS.filter((loc) =>
+        loc.name.toLowerCase().includes(lowerQ) ||
+        loc.keywords.some((k) => k.toLowerCase() === lowerQ)
+      ).map((loc) => ({
+        name: loc.name,
+        lat: loc.lat,
+        lng: loc.lng,
+        address: loc.address,
+        icon: loc.icon,
+        isReturn: loc.isReturn !== undefined ? loc.isReturn : 1,
+        distance: calcDistanceKm(userLat, userLng, loc.lat, loc.lng),
+        source: 'verified',
+      }));
+      candidates = [...internalCollegeHits, ...longdoResults];
+    } else if (longdoResults.length > 0) {
+      candidates = longdoResults;
+    } else {
+      // Fallback: only match if location name directly contains the search query
+      const localDirectHits = VERIFIED_LOCATIONS.filter((loc) =>
+        loc.name.toLowerCase().includes(lowerQ)
+      ).map((loc) => ({
+        name: loc.name,
+        lat: loc.lat,
+        lng: loc.lng,
+        address: loc.address,
+        icon: loc.icon,
+        isReturn: loc.isReturn !== undefined ? loc.isReturn : 1,
+        distance: calcDistanceKm(userLat, userLng, loc.lat, loc.lng),
+        source: 'verified',
+      }));
+      candidates = localDirectHits;
+    }
 
     const seenNames = new Set<string>();
     const deduped: any[] = [];
@@ -362,9 +387,6 @@ export async function POST(req: NextRequest) {
         });
       }
     }
-
-    // Proximity Sorting: Closest to student/college first!
-    deduped.sort((a, b) => a.distance - b.distance);
 
     if (deduped.length > 0) {
       deduped[0].isNearest = true;
