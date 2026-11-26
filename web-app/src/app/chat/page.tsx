@@ -1948,6 +1948,7 @@ function ChatContent() {
           <div className="my-2 px-1 animate-fadeIn">
             <ChatMapPicker
               onSelect={(loc) => {
+                const hasPhoto = Boolean(loc.attachmentPath);
                 const updated = {
                   ...currentSlots,
                   destination_name: loc.name,
@@ -1956,16 +1957,26 @@ function ChatContent() {
                   is_return_required: loc.isReturnRequired,
                   allowed_start_time: loc.startTime,
                   allowed_end_time: loc.endTime,
+                  attachment_path: loc.attachmentPath || currentSlots.attachment_path || null,
                 };
                 setCurrentSlots(updated);
                 setShowMapPicker(false);
-                setAskAttachmentNow(true);
+                if (loc.attachmentPath) {
+                  setSelectedAttachmentUrl(loc.attachmentPath);
+                  setAskAttachmentNow(false);
+                } else {
+                  setAskAttachmentNow(true);
+                }
 
                 const now = new Date();
                 const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-                const summaryText = `📍 ${loc.name} • เวลา ${loc.startTime} - ${loc.endTime === 'ไม่กลับ' ? 'ไม่กลับเข้าวิทยาลัย' : loc.endTime + ' น.'} (${loc.isReturnRequired === 1 ? 'ต้องกลับวิทยาลัย' : 'กลับบ้านเลย'})`;
+                const summaryText = `📍 ${loc.name} • เวลา ${loc.startTime} - ${
+                  loc.endTime === 'ไม่กลับ' ? 'ไม่กลับเข้าวิทยาลัย' : loc.endTime + ' น.'
+                } (${loc.isReturnRequired === 1 ? 'ต้องกลับวิทยาลัย' : 'กลับบ้านเลย'})${
+                  hasPhoto ? ' 📎 [แนบภาพหลักฐานแล้ว ✓]' : ''
+                }`;
 
                 setMessages((prev) => [
                   ...prev,
@@ -1976,17 +1987,35 @@ function ChatContent() {
                     time: nowTime,
                     timestamp: Date.now(),
                     dateStr: todayStr,
+                    attachmentUrl: loc.attachmentPath || null,
                   },
-                  {
-                    id: `bot-attach-${Date.now()}`,
-                    sender: 'bot',
-                    text: `บันทึกพิกัดและช่วงเวลาเรียบร้อยครับ ✅\n(สถานที่: ${loc.name} | เวลา: ${loc.startTime} - ${loc.endTime === 'ไม่กลับ' ? 'ไม่กลับเข้าวิทยาลัย' : loc.endTime + ' น.'})\n\nท่านมีเอกสารหลักฐาน เช่น ใบนัดแพทย์ หรือแชทผู้ปกครอง ที่ต้องการแนบเพิ่มเติมหรือไม่ครับ?`,
-                    time: nowTime,
-                    timestamp: Date.now() + 50,
-                    dateStr: todayStr,
-                    poweredBy: 'Google Gemini AI',
-                    options: ATTACHMENT_OPTIONS,
-                  },
+                  hasPhoto
+                    ? {
+                        id: `bot-confirm-${Date.now()}`,
+                        sender: 'bot',
+                        text: `บันทึกพิกัด ช่วงเวลา และภาพหลักฐานเรียบร้อยครับ ✅\n(สถานที่: ${loc.name} | เวลา: ${
+                          loc.startTime
+                        } - ${loc.endTime === 'ไม่กลับ' ? 'ไม่กลับเข้าวิทยาลัย' : loc.endTime + ' น.'})\n\nพร้อมยื่นคำร้องขออนุญาตออกนอกวิทยาลัยหรือไม่ครับ?`,
+                        time: nowTime,
+                        timestamp: Date.now() + 50,
+                        dateStr: todayStr,
+                        poweredBy: 'Google Gemini AI',
+                        options: CONFIRM_OPTIONS,
+                      }
+                    : {
+                        id: `bot-attach-${Date.now()}`,
+                        sender: 'bot',
+                        text: `บันทึกพิกัดและช่วงเวลาเรียบร้อยครับ ✅\n(สถานที่: ${loc.name} | เวลา: ${
+                          loc.startTime
+                        } - ${
+                          loc.endTime === 'ไม่กลับ' ? 'ไม่กลับเข้าวิทยาลัย' : loc.endTime + ' น.'
+                        })\n\nท่านมีเอกสารหลักฐาน เช่น ใบนัดแพทย์ หรือแชทผู้ปกครอง ที่ต้องการแนบเพิ่มเติมหรือไม่ครับ?`,
+                        time: nowTime,
+                        timestamp: Date.now() + 50,
+                        dateStr: todayStr,
+                        poweredBy: 'Google Gemini AI',
+                        options: ATTACHMENT_OPTIONS,
+                      },
                 ]);
               }}
               onCancel={() => setShowMapPicker(false)}

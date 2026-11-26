@@ -81,8 +81,14 @@ const INTENT_DICTIONARY: { keywords: string[]; terms: string[]; title: string; i
     icon: '🏛️',
   },
   {
+    keywords: ['บ้านพักบุคลากร', 'บ้านพักครู', 'บ้านพักอาจารย์', 'แฟลตครู', 'บุคลากร', 'ที่พักบุคลากร'],
+    terms: ['บ้านพักบุคลากร วิทยาลัยการอาชีพองครักษ์'],
+    title: 'บ้านพักบุคลากร วิทยาลัยการอาชีพองครักษ์',
+    icon: '🏠',
+  },
+  {
     keywords: ['บ้าน', 'กลับบ้าน', 'หอพัก', 'ห้องเช่า', 'อพาร์ทเม้นท์', 'ที่พัก'],
-    terms: ['บ้านพัก (คลอง 15)', 'บ้านพัก (คลอง 16)', 'ต.องครักษ์', 'หอพัก'],
+    terms: ['บ้านพักอาศัย', 'หอพัก', 'ต.องครักษ์'],
     title: 'ที่พักอาศัย/บ้านพัก',
     icon: '🏠',
   },
@@ -132,9 +138,9 @@ async function resolveGoogleMapsUrl(urlStr: string) {
   return null;
 }
 
-// Query Longdo Map Search API with local Ongkharak area (area=2604) and nationwide fallback
+// Query Longdo Map Search API safely with zero rate-limit issues
 async function searchLongdoMap(
-  keywords: string[],
+  query: string,
   apiKey: string,
   refLat: number,
   refLng: number
@@ -142,52 +148,25 @@ async function searchLongdoMap(
   const allResults: any[] = [];
   const seenIds = new Set<string>();
 
-  for (const kw of keywords.slice(0, 3)) {
-    try {
-      // 1. Try local Ongkharak district code (area=2604) first for hyper-local accuracy
-      const localUrl = `https://search.longdo.com/mapsearch/json/search?keyword=${encodeURIComponent(
-        kw
-      )}&area=2604&limit=10&key=${apiKey.trim()}`;
+  try {
+    const url = `https://search.longdo.com/mapsearch/json/search?keyword=${encodeURIComponent(
+      query.trim()
+    )}&limit=15&key=${apiKey.trim()}`;
 
-      const res = await fetch(localUrl, {
-        headers: { Accept: 'application/json' },
-      });
-      const data = await res.json();
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+    });
+    const text = await res.text();
 
+    if (text && text.trim().startsWith('{')) {
+      const data = JSON.parse(text);
       if (data && Array.isArray(data.data)) {
         for (const item of data.data) {
-          if (typeof item.lat === 'number' && typeof item.lon === 'number' && !seenIds.has(item.id || item.name)) {
-            seenIds.add(item.id || item.name);
-            const lat = Number(item.lat);
-            const lng = Number(item.lon);
-            const dist = calcDistanceKm(refLat, refLng, lat, lng);
-            allResults.push({
-              id: item.id,
-              name: item.name,
-              lat,
-              lng,
-              address: item.address || 'อ.องครักษ์ จ.นครนายก',
-              icon: getItemIcon(item),
-              distance: dist,
-              source: 'longdo',
-              isOngkharak: true,
-            });
-          }
-        }
-      }
-
-      // 2. Also query general Longdo search (limit 6)
-      const genUrl = `https://search.longdo.com/mapsearch/json/search?keyword=${encodeURIComponent(
-        kw
-      )}&lat=${refLat}&lon=${refLng}&limit=6&key=${apiKey.trim()}`;
-
-      const genRes = await fetch(genUrl, {
-        headers: { Accept: 'application/json' },
-      });
-      const genData = await genRes.json();
-      if (genData && Array.isArray(genData.data)) {
-        for (const item of genData.data) {
-          if (typeof item.lat === 'number' && typeof item.lon === 'number' && !seenIds.has(item.id || item.name)) {
+          if (
+            typeof item.lat === 'number' &&
+            typeof item.lon === 'number' &&
+            !seenIds.has(item.id || item.name)
+          ) {
             seenIds.add(item.id || item.name);
             const lat = Number(item.lat);
             const lng = Number(item.lon);
@@ -201,14 +180,13 @@ async function searchLongdoMap(
               icon: getItemIcon(item),
               distance: dist,
               source: 'longdo',
-              isOngkharak: (item.address || '').includes('องครักษ์') || dist < 20,
             });
           }
         }
       }
-    } catch (err: any) {
-      console.warn('Longdo Search error for kw:', kw, err.message);
     }
+  } catch (err: any) {
+    console.warn('Longdo Search error:', err.message);
   }
 
   return allResults;
@@ -343,13 +321,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4. Query Longdo Map Search API (Hyper-local + National)
+    // 4. Query Longdo Map Search API safely
     let longdoResults: any[] = [];
     if (hasLongdoKey) {
-      longdoResults = await searchLongdoMap(searchTerms, longdoKey, userLat, userLng);
+      longdoResults = await searchLongdoMap(rawQuery, longdoKey, userLat, userLng);
     }
 
-    // 5. Local Curated Database (Amphoe Ongkharak 11 Sub-districts)
+    // 5. Local college landmarks match (e.g. "บ้านพักบุคลากร", "หอพักใน", "ป้อมยาม")
     const localMatched: any[] = [];
     for (const term of searchTerms) {
       const hits = searchVerifiedLocations(term);
@@ -368,12 +346,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Combine & Deduplicate
-    const combined = [...longdoResults, ...localMatched];
+    // Combine Longdo + Local exact matches (zero duplicate)
+    const candidates = [...localMatched, ...longdoResults];
+
     const seenNames = new Set<string>();
     const deduped: any[] = [];
 
-    for (const item of combined) {
+    for (const item of candidates) {
       const normName = item.name.trim().toLowerCase();
       if (!seenNames.has(normName)) {
         seenNames.add(normName);
