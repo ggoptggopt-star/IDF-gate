@@ -353,7 +353,7 @@ export default function ApproverDashboard() {
                         </span>
                         <p className="text-[11px] text-slate-500">
                           {r.checkin_verified
-                            ? `เช็คอินที่ ${r.destination_name} (ห่าง ${r.checkin_distance_m} ม.)`
+                            ? `เช็คอินที่ ${r.destination_name}${r.checkin_distance_m != null ? ` (ห่าง ${r.checkin_distance_m} ม.)` : ' เรียบร้อยแล้ว'}`
                             : 'นักศึกษายังไม่ได้กดเช็คอินพิกัดที่จุดหมาย'}
                         </p>
                       </div>

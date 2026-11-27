@@ -67,6 +67,7 @@ export interface LeaveRequest {
   student_id: string;
   student_name?: string;
   student_code?: string;
+  avatar_url?: string | null;
   group_code?: string;
   course_id?: string | null;
   course_name?: string | null;

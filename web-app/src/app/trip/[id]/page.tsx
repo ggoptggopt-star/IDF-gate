@@ -17,16 +17,19 @@ import {
   RotateCcw,
   Sparkles,
   AlertTriangle,
-  Play,
-  Pause,
   Home,
   Check,
   Camera,
   X,
   Lock,
   Image as ImageIcon,
+  Crosshair,
+  Radio,
+  Signal,
+  Smartphone,
 } from 'lucide-react';
 import { LeaveRequest } from '@/types';
+import { useAuth } from '@/context/AuthContext';
 
 // College coordinates: OICEC (วิทยาลัยการอาชีพองครักษ์)
 const OICEC_LAT = 14.109127;
@@ -50,18 +53,22 @@ function TripContent() {
   const params = useParams();
   const router = useRouter();
   const requestId = params?.id as string;
+  const { user } = useAuth();
 
   const [request, setRequest] = useState<LeaveRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Simulation slider (0 to 100%)
-  const [simProgress, setSimProgress] = useState(0);
-  const [isAutoPlaying, setIsAutoPlaying] = useState(false);
+  // Real-time Live GPS State (100% Real Live GPS)
   const [currentCoord, setCurrentCoord] = useState<{ lat: number; lng: number }>({
     lat: OICEC_LAT,
     lng: OICEC_LNG,
   });
+  const [isTransmittingGPS, setIsTransmittingGPS] = useState(true);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [lastPingAt, setLastPingAt] = useState<string | null>(null);
+  const [autoCenter, setAutoCenter] = useState(false);
 
   // Live Camera Only Modal state
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
@@ -78,7 +85,7 @@ function TripContent() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
   const riderMarkerRef = useRef<any>(null);
-  const polylineRef = useRef<any>(null);
+  const destMarkerRef = useRef<any>(null);
 
   // Load request data
   const fetchRequest = async () => {
@@ -87,15 +94,13 @@ function TripContent() {
       const data = await res.json();
       if (data.success && data.request) {
         setRequest(data.request);
-        const destLat = data.request.destination_lat || 14.1350;
-        const destLng = data.request.destination_lng || 100.9920;
+        const req = data.request;
+        const liveLat = req.current_lat || OICEC_LAT;
+        const liveLng = req.current_lng || OICEC_LNG;
 
-        // If trip already at destination or back, set initial slider
-        if (data.request.trip_stage === 'at_dest') {
-          setSimProgress(100);
-          setCurrentCoord({ lat: destLat, lng: destLng });
-        } else if (data.request.trip_stage === 'completed') {
-          setSimProgress(100);
+        setCurrentCoord({ lat: liveLat, lng: liveLng });
+        if (riderMarkerRef.current) {
+          riderMarkerRef.current.setLatLng([liveLat, liveLng]);
         }
       }
     } catch (e) {
@@ -114,6 +119,12 @@ function TripContent() {
   const destLat = request?.destination_lat || 14.1350;
   const destLng = request?.destination_lng || 100.9920;
   const isOneWay = request?.is_return_required === 0;
+
+  const stage = request?.trip_stage || 'heading_to_dest';
+  const isCompleted =
+    stage === 'completed' ||
+    request?.overall_status === 'returned' ||
+    (isOneWay && request?.overall_status === 'completed_exit' && request?.dest_arrived_at);
 
   // Initialize Leaflet Map
   useEffect(() => {
@@ -141,9 +152,12 @@ function TripContent() {
         mapInstanceRef.current = null;
       }
 
+      const initialLat = currentReq.current_lat || OICEC_LAT;
+      const initialLng = currentReq.current_lng || OICEC_LNG;
+
       const map = L.map(mapContainerRef.current!, {
-        center: [(OICEC_LAT + destLat) / 2, (OICEC_LNG + destLng) / 2],
-        zoom: 14,
+        center: [initialLat, initialLng],
+        zoom: 15,
         zoomControl: false,
       });
 
@@ -152,7 +166,7 @@ function TripContent() {
         maxZoom: 19,
       }).addTo(map);
 
-      // 1. College Marker (Start)
+      // 1. College Marker (วิทยาลัยการอาชีพองครักษ์)
       const collegeIcon = L.divIcon({
         className: 'college-pin',
         html: `
@@ -166,9 +180,9 @@ function TripContent() {
 
       L.marker([OICEC_LAT, OICEC_LNG], { icon: collegeIcon })
         .addTo(map)
-        .bindPopup('<b>วิทยาลัยการอาชีพองครักษ์ (OICEC)</b><br>จุดเริ่มต้น');
+        .bindPopup('<b>วิทยาลัยการอาชีพองครักษ์ (OICEC)</b><br>จุดเริ่มต้น / ประตูวิทยาลัย');
 
-      // 2. Destination Marker (End)
+      // 2. Destination Marker (ปลายทาง)
       const destIcon = L.divIcon({
         className: 'dest-pin',
         html: `
@@ -179,51 +193,65 @@ function TripContent() {
         iconSize: [34, 34],
         iconAnchor: [17, 34],
       });
-      L.marker([destLat, destLng], { icon: destIcon })
+      const destMarker = L.marker([destLat, destLng], { icon: destIcon })
         .addTo(map)
         .bindPopup(`<b>${currentReq.destination_name || 'จุดหมายปลายทาง'}</b><br>เป้าหมายการเดินทาง`);
+      destMarkerRef.current = destMarker;
 
-      // 3. Route Polyline
-      const routeLine = L.polyline(
-        [
-          [OICEC_LAT, OICEC_LNG],
-          [(OICEC_LAT + destLat) / 2 + 0.001, (OICEC_LNG + destLng) / 2 - 0.001],
-          [destLat, destLng],
-        ],
-        {
-          color: '#2563eb',
-          weight: 5,
-          opacity: 0.8,
-          dashArray: '8, 8',
-        }
-      ).addTo(map);
-      polylineRef.current = routeLine;
+      // 3. Student Avatar Marker with Green Radar Pulse
+      const avatarSrc =
+        currentReq.avatar_url ||
+        `/uploads/faces/${currentReq.student_id}/straight.jpg` ||
+        'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150';
+      const studentName = currentReq.student_name || 'นักเรียน';
+      const classGroup = currentReq.group_code || 'ปวส.2/1';
 
-      // 4. Moving Rider Marker
-      const riderIcon = L.divIcon({
-        className: 'rider-live-pin',
+      const studentIcon = L.divIcon({
+        className: 'student-radar-pin',
         html: `
-          <div style="position:relative;display:flex;align-items:center;justify-content:center;">
-            <div style="position:absolute;width:44px;height:44px;border-radius:50%;background:rgba(16,185,129,0.35);animation:ping 1.5s cubic-bezier(0,0,0.2,1) infinite;"></div>
-            <div style="background:#0f172a;color:#10b981;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.4);border:2.5px solid #10b981;font-size:16px;z-index:2;">
-              🛵
+          <div style="position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;width:160px;height:90px;pointer-events:auto;cursor:pointer;">
+            <!-- Outer Pulsing Radar Waves -->
+            <div style="position:absolute;top:28px;left:50%;transform:translate(-50%,-50%);width:78px;height:78px;border-radius:50%;background:rgba(34,197,94,0.3);animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;pointer-events:none;"></div>
+            <div style="position:absolute;top:28px;left:50%;transform:translate(-50%,-50%);width:58px;height:58px;border-radius:50%;background:rgba(16,185,129,0.35);border:2px solid rgba(52,211,153,0.7);pointer-events:none;"></div>
+
+            <!-- Student Photo Avatar with Green Ring -->
+            <div style="position:relative;width:50px;height:50px;border-radius:50%;overflow:hidden;border:3px solid #10b981;box-shadow:0 0 16px rgba(16,185,129,0.8),0 4px 12px rgba(0,0,0,0.6);background:#0f172a;z-index:10;">
+              <img src="${avatarSrc}" alt="${studentName}" style="width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150';" />
+              <!-- Live Green Dot Badge -->
+              <span style="position:absolute;bottom:2px;right:2px;width:11px;height:11px;border-radius:50%;background:#22c55e;border:2px solid #ffffff;box-shadow:0 0 6px #22c55e;"></span>
+            </div>
+
+            <!-- Student Name & Class Pill -->
+            <div style="margin-top:6px;background:rgba(15,23,42,0.95);color:#ffffff;padding:2.5px 9px;border-radius:9999px;font-size:11px;font-weight:700;border:1.5px solid #10b981;box-shadow:0 3px 10px rgba(0,0,0,0.5);white-space:nowrap;display:flex;align-items:center;gap:4px;z-index:10;">
+              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#22c55e;"></span>
+              <span>${studentName}</span>
+              <span style="color:#6ee7b7;font-size:10px;font-weight:500;">(${classGroup})</span>
             </div>
           </div>
         `,
-        iconSize: [44, 44],
-        iconAnchor: [22, 22],
+        iconSize: [160, 90],
+        iconAnchor: [80, 28],
       });
 
-      const riderMarker = L.marker([currentCoord.lat, currentCoord.lng], {
-        icon: riderIcon,
+      const riderMarker = L.marker([initialLat, initialLng], {
+        icon: studentIcon,
         zIndexOffset: 1000,
       }).addTo(map);
+
+      riderMarker.bindPopup(`
+        <div style="font-family:sans-serif;font-size:12px;padding:2px;">
+          <div style="font-weight:bold;color:#0f172a;margin-bottom:2px;">${studentName} (${classGroup})</div>
+          <div style="color:#10b981;font-weight:600;">🟢 กำลังแชร์พิกัด GPS สดจากมือถือ</div>
+          <div style="color:#64748b;font-size:10px;margin-top:3px;">พิกัด: ${initialLat.toFixed(5)}, ${initialLng.toFixed(5)}</div>
+        </div>
+      `);
 
       riderMarkerRef.current = riderMarker;
       mapInstanceRef.current = map;
 
-      // Fit bounds
-      map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+      // Fit bounds between student and destination
+      const bounds = L.latLngBounds([[initialLat, initialLng], [destLat, destLng]]);
+      map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
     }
 
     initMap();
@@ -235,53 +263,115 @@ function TripContent() {
         mapInstanceRef.current = null;
       }
     };
-  }, [request]);
+  }, [request?.id]);
 
-  // Update Rider Marker position when simulation progress changes
+  // Real-time GPS Transmitter (Runs on Student's Mobile / Active Device)
   useEffect(() => {
-    if (!request) return;
-
-    const fraction = simProgress / 100;
-    const isHeadingBack = request.trip_stage === 'heading_back';
-
-    let fromLat = OICEC_LAT;
-    let fromLng = OICEC_LNG;
-    let toLat = destLat;
-    let toLng = destLng;
-
-    if (isHeadingBack) {
-      fromLat = destLat;
-      fromLng = destLng;
-      toLat = OICEC_LAT;
-      toLng = OICEC_LNG;
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      setGpsError('เบราว์เซอร์ไม่รองรับ Geolocation API');
+      return;
     }
+    if (isCompleted || !isTransmittingGPS) return;
 
-    const newLat = fromLat + (toLat - fromLat) * fraction;
-    const newLng = fromLng + (toLng - fromLng) * fraction;
+    let lastPingTime = 0;
 
-    setCurrentCoord({ lat: newLat, lng: newLng });
+    const watchId = navigator.geolocation.watchPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const accuracy = Math.round(pos.coords.accuracy);
+        const speed = pos.coords.speed ? Math.round(pos.coords.speed * 3.6) : 0;
+        const heading = pos.coords.heading || 0;
 
-    if (riderMarkerRef.current) {
-      riderMarkerRef.current.setLatLng([newLat, newLng]);
-    }
-  }, [simProgress, request?.trip_stage]);
+        setGpsAccuracy(accuracy);
+        setGpsError(null);
+        setCurrentCoord({ lat, lng });
 
-  // Auto-play demo simulation
-  useEffect(() => {
-    let interval: any = null;
-    if (isAutoPlaying) {
-      interval = setInterval(() => {
-        setSimProgress((prev) => {
-          if (prev >= 100) {
-            setIsAutoPlaying(false);
-            return 100;
+        if (riderMarkerRef.current) {
+          riderMarkerRef.current.setLatLng([lat, lng]);
+        }
+
+        if (autoCenter && mapInstanceRef.current) {
+          mapInstanceRef.current.panTo([lat, lng]);
+        }
+
+        // Throttle server transmission to once per 4 seconds
+        const now = Date.now();
+        if (now - lastPingTime > 4000) {
+          lastPingTime = now;
+          try {
+            await fetch(`/api/requests/${requestId}/trip`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'ping_gps',
+                lat,
+                lng,
+                speed,
+                heading,
+              }),
+            });
+            setLastPingAt(new Date().toLocaleTimeString('th-TH'));
+          } catch (err) {
+            console.error('Failed to transmit GPS ping:', err);
           }
-          return Math.min(100, prev + 5);
-        });
-      }, 600);
-    }
+        }
+      },
+      (err) => {
+        console.warn('Geolocation watchPosition status:', err);
+        if (err.code === 1) {
+          setGpsError('โปรดเปิดอนุญาตสิทธิ์เข้าถึงพิกัด GPS บนเบราว์เซอร์');
+        } else {
+          setGpsError('กำลังเชื่อมต่อสัญญาณดาวเทียม GPS...');
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 3000,
+        timeout: 12000,
+      }
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, [requestId, isTransmittingGPS, isCompleted, autoCenter]);
+
+  // Real-time GPS Poller (Fetches latest student coordinates for Teachers / Viewers)
+  useEffect(() => {
+    if (isCompleted) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/requests/${requestId}/trip`);
+        const data = await res.json();
+        if (data.success && data.request) {
+          const r = data.request;
+          setRequest(r);
+          if (r.current_lat && r.current_lng) {
+            setCurrentCoord({ lat: r.current_lat, lng: r.current_lng });
+            if (riderMarkerRef.current) {
+              riderMarkerRef.current.setLatLng([r.current_lat, r.current_lng]);
+            }
+            if (autoCenter && mapInstanceRef.current) {
+              mapInstanceRef.current.panTo([r.current_lat, r.current_lng]);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+      }
+    }, 3500);
+
     return () => clearInterval(interval);
-  }, [isAutoPlaying]);
+  }, [requestId, isCompleted, autoCenter]);
+
+  // Center on student marker
+  const centerOnStudent = () => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.setView([currentCoord.lat, currentCoord.lng], 16, { animate: true });
+    }
+  };
 
   // Open Live Camera
   const openLiveCamera = async (type: 'dest' | 'return') => {
@@ -316,7 +406,6 @@ function TripContent() {
 
   const takeSnapshot = () => {
     if (!videoRef.current) {
-      // Trigger file capture fallback
       fileCameraInputRef.current?.click();
       return;
     }
@@ -331,7 +420,6 @@ function TripContent() {
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
       setCapturedPhoto(dataUrl);
 
-      // Stop camera stream preview
       if (cameraStream) {
         cameraStream.getTracks().forEach((track) => track.stop());
         setCameraStream(null);
@@ -356,7 +444,6 @@ function TripContent() {
     setUploadingPhoto(true);
 
     try {
-      // 1. Upload base64 to server
       const blob = await (await fetch(capturedPhoto)).blob();
       const formData = new FormData();
       formData.append('file', blob, `live-${cameraAction}-${Date.now()}.jpg`);
@@ -368,7 +455,6 @@ function TripContent() {
       const uploadData = await uploadRes.json();
       const photoUrl = uploadData.success ? uploadData.url : null;
 
-      // 2. Submit trip action with live photo
       const actionToSubmit =
         cameraAction === 'dest'
           ? isOneWay
@@ -408,9 +494,6 @@ function TripContent() {
       const data = await res.json();
       if (data.success && data.request) {
         setRequest(data.request);
-        if (action === 'start_return') {
-          setSimProgress(0); // Reset for return leg
-        }
       } else {
         alert(data.error || 'เกิดข้อผิดพลาดในการบันทึก');
       }
@@ -443,12 +526,6 @@ function TripContent() {
     );
   }
 
-  const stage = request.trip_stage || 'heading_to_dest';
-  const isCompleted =
-    stage === 'completed' ||
-    request.overall_status === 'returned' ||
-    (isOneWay && request.overall_status === 'completed_exit' && request.dest_arrived_at);
-
   const targetLat = stage === 'heading_back' ? OICEC_LAT : destLat;
   const targetLng = stage === 'heading_back' ? OICEC_LNG : destLng;
   const distanceMeters = calcDistanceMeters(currentCoord.lat, currentCoord.lng, targetLat, targetLng);
@@ -459,7 +536,6 @@ function TripContent() {
       {/* Top Floating Header with Mandatory Screen Lock */}
       <header className="px-4 py-3 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-3">
-          {/* Back button ONLY available after trip is completed */}
           {isCompleted ? (
             <Link
               href="/"
@@ -471,7 +547,7 @@ function TripContent() {
           ) : (
             <div
               className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center"
-              title="ระบบล็อกหน้าจอจนกว่าจะสิ้นสุดคำร้อง"
+              title="ระบบติดตามพิกัดเรียลไทม์จนกว่าจะสิ้นสุดคำร้อง"
             >
               <Lock className="w-4 h-4" />
             </div>
@@ -479,10 +555,10 @@ function TripContent() {
 
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-sm tracking-wide text-white">Live Trip Mode</span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                GPS Live
+              <span className="font-bold text-sm tracking-wide text-white">Live Tracking Mode</span>
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                GPS สดเรียลไทม์
               </span>
             </div>
             <p className="text-[10px] text-slate-400">
@@ -500,72 +576,123 @@ function TripContent() {
         </button>
       </header>
 
-      {/* Mandatory Lock Banner for Active Trips */}
+      {/* Mandatory Notification for Active Trips */}
       {!isCompleted && (
-        <div className="bg-amber-950/70 border-b border-amber-700/50 px-3.5 py-1.5 flex items-center gap-2 text-[11px] text-amber-200">
-          <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <span>
-            <strong>โหมดล็อกหน้าจอการเดินทาง:</strong> กรุณาเช็คอินด้วยภาพถ่ายสดเมื่อถึงจุดหมาย เพื่อความโปร่งใสและปลอดภัย
-          </span>
+        <div className="bg-emerald-950/70 border-b border-emerald-800/50 px-3.5 py-1.5 flex items-center justify-between gap-2 text-[11px] text-emerald-200">
+          <div className="flex items-center gap-2">
+            <Radio className="w-3.5 h-3.5 text-emerald-400 shrink-0 animate-pulse" />
+            <span>
+              <strong>โหมดติดตามตัวนักเรียน:</strong> ระบบใช้ GPS สดจากมือถือเปรียบเสมือนเครื่องติดตามตัว
+            </span>
+          </div>
+          {lastPingAt && (
+            <span className="text-[10px] text-emerald-300/80 shrink-0">
+              สัญญาณ: {lastPingAt}
+            </span>
+          )}
         </div>
       )}
 
       {/* Full-bleed Interactive Leaflet Map */}
-      <div className="relative w-full h-72 sm:h-80 bg-slate-950 border-b border-slate-800">
+      <div className="relative w-full h-80 sm:h-96 bg-slate-950 border-b border-slate-800">
         <div ref={mapContainerRef} className="w-full h-full" />
 
-        {/* Live Distance & Speed Overlay Badge */}
+        {/* Live Distance Overlay Badge */}
         <div className="absolute top-3 left-3 z-[400] bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-2 text-xs">
           <Navigation className="w-4 h-4 text-emerald-400 animate-pulse" />
           <div>
             <div className="text-[10px] text-slate-400">ระยะห่างถึงเป้าหมาย</div>
-            <div className="font-bold text-white text-xs">{distanceMeters > 1000 ? `${distanceKm} กม.` : `${distanceMeters} เมตร`}</div>
+            <div className="font-bold text-white text-xs">
+              {distanceMeters > 1000 ? `${distanceKm} กม.` : `${distanceMeters} เมตร`}
+            </div>
           </div>
         </div>
 
         {/* Status Chip */}
         <div className="absolute top-3 right-3 z-[400] bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold shadow-lg text-emerald-400 flex items-center gap-1.5">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-          <span>{isCompleted ? 'สิ้นสุดการเดินทาง ✓' : stage === 'at_dest' ? 'ถึงที่หมายแล้ว 📍' : 'กำลังนำทาง 🛵'}</span>
+          <span>
+            {isCompleted
+              ? 'สิ้นสุดการเดินทาง ✓'
+              : stage === 'at_dest'
+              ? 'ถึงที่หมายแล้ว 📍'
+              : 'นักเรียนกำลังเดินทาง 🚶'}
+          </span>
         </div>
+
+        {/* Focus Student Floating Button on Map */}
+        <button
+          onClick={centerOnStudent}
+          className="absolute bottom-3 right-3 z-[400] bg-slate-900/95 hover:bg-slate-800 border border-emerald-500/50 text-emerald-400 px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 text-xs font-bold transition-all active:scale-95 cursor-pointer backdrop-blur-md"
+        >
+          <Crosshair className="w-4 h-4 text-emerald-400" />
+          <span>🎯 โฟกัสตัวนักเรียน</span>
+        </button>
       </div>
 
-      {/* Main Body Sheet */}
+      {/* Main Body Content */}
       <div className="p-4 space-y-4">
-        {/* Presentation Simulation Slider */}
-        <div className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-3.5 shadow-md">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              จำลองการเคลื่อนที่ GPS (สำหรับนำเสนออาจารย์):
-            </span>
+        {/* Real-time Mobile GPS Tracker Status Card */}
+        <div className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-4 shadow-md space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-700/60 pb-2.5">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
+                <Smartphone className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>สถานะเครื่องติดตาม GPS (มือถือนักเรียน)</span>
+                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                </h3>
+                <p className="text-[10px] text-slate-400">
+                  {request.student_name} ({request.group_code || 'ปวส.'})
+                </p>
+              </div>
+            </div>
+
             <button
-              onClick={() => setIsAutoPlaying(!isAutoPlaying)}
-              className="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-950/60 border border-cyan-800/60 cursor-pointer"
+              onClick={() => setIsTransmittingGPS(!isTransmittingGPS)}
+              className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-all cursor-pointer flex items-center gap-1.5 ${
+                isTransmittingGPS
+                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/80'
+                  : 'bg-slate-700/80 text-slate-400 border-slate-600'
+              }`}
             >
-              {isAutoPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-              <span>{isAutoPlaying ? 'หยุดเล่น' : 'เล่นอัตโนมัติ'}</span>
+              <Signal className="w-3 h-3" />
+              <span>{isTransmittingGPS ? '📡 สัญญาณสด: เปิด' : 'ปิดการส่ง'}</span>
             </button>
           </div>
 
-          <div className="space-y-1.5">
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={simProgress}
-              onChange={(e) => {
-                setSimProgress(Number(e.target.value));
-                setIsAutoPlaying(false);
-              }}
-              className="w-full accent-emerald-500 h-2 bg-slate-700 rounded-lg cursor-pointer"
-            />
-            <div className="flex justify-between text-[10px] text-slate-400 font-medium">
-              <span>{stage === 'heading_back' ? request.destination_name : 'วิทยาลัยการอาชีพองครักษ์ (0%)'}</span>
-              <span className="font-bold text-emerald-400">{simProgress}%</span>
-              <span>{stage === 'heading_back' ? 'ถึงวิทยาลัย (100%)' : `${request.destination_name} (100%)`}</span>
+          {/* GPS Details Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+            <div className="bg-slate-900/80 border border-slate-700/50 rounded-xl p-2.5">
+              <div className="text-[10px] text-slate-400">พิกัดดาวเทียมปัจจุบัน</div>
+              <div className="font-mono font-bold text-emerald-400 text-[11px] mt-0.5">
+                {currentCoord.lat.toFixed(5)}, {currentCoord.lng.toFixed(5)}
+              </div>
+            </div>
+
+            <div className="bg-slate-900/80 border border-slate-700/50 rounded-xl p-2.5">
+              <div className="text-[10px] text-slate-400">ความแม่นยำ GPS</div>
+              <div className="font-bold text-white text-[11px] mt-0.5 flex items-center gap-1">
+                {gpsAccuracy ? `±${gpsAccuracy} เมตร` : 'ความแม่นยำสูง (High)'}
+              </div>
+            </div>
+
+            <div className="bg-slate-900/80 border border-slate-700/50 rounded-xl p-2.5 col-span-2 sm:col-span-1">
+              <div className="text-[10px] text-slate-400">อัปเดตล่าสุด</div>
+              <div className="font-semibold text-slate-200 text-[11px] mt-0.5">
+                {lastPingAt || 'เรียลไทม์ (Live)'}
+              </div>
             </div>
           </div>
+
+          {gpsError && (
+            <div className="text-[11px] text-amber-300 bg-amber-950/60 border border-amber-700/60 rounded-xl p-2 flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>{gpsError}</span>
+            </div>
+          )}
         </div>
 
         {/* 3-Point Evidence Timeline */}
@@ -673,24 +800,28 @@ function TripContent() {
 
             {/* Step 2: Heading to Dest */}
             <div className="flex items-center gap-3">
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-white ${
-                stage !== 'not_started' ? 'bg-emerald-500' : 'bg-slate-700'
-              }`}>
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-white ${
+                  stage !== 'not_started' ? 'bg-emerald-500' : 'bg-slate-700'
+                }`}
+              >
                 <Check className="w-3.5 h-3.5" />
               </div>
               <div className="text-xs">
                 <p className="font-semibold text-white">2. กำลังเดินทางไป {request.destination_name}</p>
-                <p className="text-[10px] text-slate-400">ระบบแชร์พิกัด GPS อัตโนมัติ</p>
+                <p className="text-[10px] text-slate-400">แชร์พิกัด GPS สดจากมือถือตลอดทาง</p>
               </div>
             </div>
 
             {/* Step 3: Arrived Dest */}
             <div className="flex items-center gap-3">
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-white ${
-                ['at_dest', 'heading_back', 'completed'].includes(stage) || (isOneWay && isCompleted)
-                  ? 'bg-emerald-500'
-                  : 'bg-slate-700 text-slate-400'
-              }`}>
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-white ${
+                  ['at_dest', 'heading_back', 'completed'].includes(stage) || (isOneWay && isCompleted)
+                    ? 'bg-emerald-500'
+                    : 'bg-slate-700 text-slate-400'
+                }`}
+              >
                 {['at_dest', 'heading_back', 'completed'].includes(stage) || (isOneWay && isCompleted) ? (
                   <Check className="w-3.5 h-3.5" />
                 ) : (
@@ -709,10 +840,16 @@ function TripContent() {
             {!isOneWay && (
               <>
                 <div className="flex items-center gap-3">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-white ${
-                    ['heading_back', 'completed'].includes(stage) ? 'bg-emerald-500' : 'bg-slate-700 text-slate-400'
-                  }`}>
-                    {['heading_back', 'completed'].includes(stage) ? <Check className="w-3.5 h-3.5" /> : <span className="text-[10px]">4</span>}
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-white ${
+                      ['heading_back', 'completed'].includes(stage) ? 'bg-emerald-500' : 'bg-slate-700 text-slate-400'
+                    }`}
+                  >
+                    {['heading_back', 'completed'].includes(stage) ? (
+                      <Check className="w-3.5 h-3.5" />
+                    ) : (
+                      <span className="text-[10px]">4</span>
+                    )}
                   </div>
                   <div className="text-xs">
                     <p className="font-semibold text-white">4. เดินทางกลับเข้าวิทยาลัย</p>
@@ -721,9 +858,11 @@ function TripContent() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-white ${
-                    isCompleted ? 'bg-emerald-500' : 'bg-slate-700 text-slate-400'
-                  }`}>
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-white ${
+                      isCompleted ? 'bg-emerald-500' : 'bg-slate-700 text-slate-400'
+                    }`}
+                  >
                     {isCompleted ? <Check className="w-3.5 h-3.5" /> : <span className="text-[10px]">5</span>}
                   </div>
                   <div className="text-xs">
@@ -840,7 +979,6 @@ function TripContent() {
       {/* Live Camera Only Modal */}
       {cameraModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-between p-4 animate-fadeIn">
-          {/* Hidden Mobile Camera Input Fallback */}
           <input
             type="file"
             accept="image/*"
@@ -850,7 +988,6 @@ function TripContent() {
             className="hidden"
           />
 
-          {/* Top Bar */}
           <div className="w-full max-w-md flex items-center justify-between text-white pb-3 border-b border-slate-800">
             <div className="flex items-center gap-2">
               <Camera className="w-5 h-5 text-emerald-400" />
@@ -869,7 +1006,6 @@ function TripContent() {
             </button>
           </div>
 
-          {/* Video Viewport / Photo Preview */}
           <div className="w-full max-w-md flex-1 my-3 relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center">
             {capturedPhoto ? (
               <div className="relative w-full h-full flex items-center justify-center">
@@ -892,7 +1028,6 @@ function TripContent() {
             )}
           </div>
 
-          {/* Shutter / Confirm Controls */}
           <div className="w-full max-w-md flex flex-col gap-2 pt-2">
             {capturedPhoto ? (
               <div className="grid grid-cols-2 gap-2">

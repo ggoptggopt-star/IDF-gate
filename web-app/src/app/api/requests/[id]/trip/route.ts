@@ -9,7 +9,7 @@ export async function GET(
   try {
     const { id } = await params;
     const request = queryOne<LeaveRequest>(`
-      SELECT lr.*, u.full_name as student_name, u.username as student_code, cg.group_code, cs.course_name
+      SELECT lr.*, u.full_name as student_name, u.username as student_code, u.avatar_url, cg.group_code, cs.course_name
       FROM leave_requests lr
       JOIN users u ON lr.student_id = u.id
       LEFT JOIN class_groups cg ON u.class_group_id = cg.id
@@ -115,7 +115,7 @@ export async function POST(
     }
 
     const updated = queryOne<LeaveRequest>(`
-      SELECT lr.*, u.full_name as student_name, u.username as student_code, cg.group_code, cs.course_name
+      SELECT lr.*, u.full_name as student_name, u.username as student_code, u.avatar_url, cg.group_code, cs.course_name
       FROM leave_requests lr
       JOIN users u ON lr.student_id = u.id
       LEFT JOIN class_groups cg ON u.class_group_id = cg.id
