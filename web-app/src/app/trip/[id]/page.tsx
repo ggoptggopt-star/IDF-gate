@@ -73,15 +73,10 @@ function TripContent() {
   const [lastPingAt, setLastPingAt] = useState<string | null>(null);
   const [autoCenter, setAutoCenter] = useState(false);
 
-  // Live Camera Only Modal state
-  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+  // Native Mobile Camera State
   const [cameraAction, setCameraAction] = useState<'dest' | 'return'>('dest');
-  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
-
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   // Map references
@@ -423,79 +418,26 @@ function TripContent() {
     }
   };
 
-  // Open Live Camera (for Student Check-in)
-  const openLiveCamera = async (type: 'dest' | 'return') => {
+  // Trigger Mobile Native Camera
+  const triggerNativeCamera = (type: 'dest' | 'return') => {
     setCameraAction(type);
-    setCapturedPhoto(null);
-    setCameraModalOpen(true);
-
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-        });
-        setCameraStream(stream);
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-        }
-      }
-    } catch (e) {
-      console.warn('WebRTC Camera fallback:', e);
+    if (fileCameraInputRef.current) {
+      fileCameraInputRef.current.value = '';
+      fileCameraInputRef.current.click();
     }
   };
 
-  const closeLiveCamera = () => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach((track) => track.stop());
-      setCameraStream(null);
-    }
-    setCameraModalOpen(false);
-    setCapturedPhoto(null);
-  };
-
-  const takeSnapshot = () => {
-    if (!videoRef.current) {
-      fileCameraInputRef.current?.click();
-      return;
-    }
-
-    const video = videoRef.current;
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      setCapturedPhoto(dataUrl);
-
-      if (cameraStream) {
-        cameraStream.getTracks().forEach((track) => track.stop());
-        setCameraStream(null);
-      }
-    }
-  };
-
-  const handleMobileFileCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 1-Click Auto Upload & Submit Check-in from Mobile Camera
+  const handleAutoUploadAndCheckin = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setCapturedPhoto(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+    if (!file) return;
 
-  const handleConfirmLivePhoto = async () => {
-    if (!capturedPhoto) return;
     setUploadingPhoto(true);
+    setSubmitting(true);
 
     try {
-      const blob = await (await fetch(capturedPhoto)).blob();
       const formData = new FormData();
-      formData.append('file', blob, `live-${cameraAction}-${Date.now()}.jpg`);
+      formData.append('file', file, `live-${cameraAction}-${Date.now()}.jpg`);
 
       const uploadRes = await fetch('/api/upload', {
         method: 'POST',
@@ -512,12 +454,12 @@ function TripContent() {
           : 'arrive_college';
 
       await handleAction(actionToSubmit, photoUrl);
-      closeLiveCamera();
     } catch (e: any) {
       console.error(e);
-      alert('เกิดข้อผิดพลาดในการบันทึกภาพถ่าย: ' + e.message);
+      alert('เกิดข้อผิดพลาดในการบันทึกภาพถ่ายและเช็คอิน: ' + e.message);
     } finally {
       setUploadingPhoto(false);
+      setSubmitting(false);
     }
   };
 
@@ -967,13 +909,23 @@ function TripContent() {
           ) : (
             /* B. If Viewer is Student: Camera Check-in Controls */
             <div>
+              {/* Hidden Native Mobile Camera Input */}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                ref={fileCameraInputRef}
+                onChange={handleAutoUploadAndCheckin}
+                className="hidden"
+              />
+
               {isOneWay ? (
                 <button
-                  onClick={() => openLiveCamera('dest')}
-                  disabled={submitting}
+                  onClick={() => triggerNativeCamera('dest')}
+                  disabled={submitting || uploadingPhoto}
                   className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
                 >
-                  {submitting ? (
+                  {submitting || uploadingPhoto ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : (
                     <>
@@ -986,11 +938,11 @@ function TripContent() {
                 <div className="space-y-2">
                   {stage === 'heading_to_dest' || stage === 'not_started' ? (
                     <button
-                      onClick={() => openLiveCamera('dest')}
-                      disabled={submitting}
+                      onClick={() => triggerNativeCamera('dest')}
+                      disabled={submitting || uploadingPhoto}
                       className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm shadow-lg shadow-blue-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
                     >
-                      {submitting ? (
+                      {submitting || uploadingPhoto ? (
                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       ) : (
                         <>
@@ -1021,11 +973,11 @@ function TripContent() {
                     </div>
                   ) : stage === 'heading_back' ? (
                     <button
-                      onClick={() => openLiveCamera('return')}
-                      disabled={submitting}
+                      onClick={() => triggerNativeCamera('return')}
+                      disabled={submitting || uploadingPhoto}
                       className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
                     >
-                      {submitting ? (
+                      {submitting || uploadingPhoto ? (
                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       ) : (
                         <>
@@ -1042,105 +994,12 @@ function TripContent() {
         </div>
       )}
 
-      {/* Live Camera Only Modal */}
-      {cameraModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-between p-4 animate-fadeIn">
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            ref={fileCameraInputRef}
-            onChange={handleMobileFileCapture}
-            className="hidden"
-          />
-
-          <div className="w-full max-w-md flex items-center justify-between text-white pb-3 border-b border-slate-800">
-            <div className="flex items-center gap-2">
-              <Camera className="w-5 h-5 text-emerald-400" />
-              <div>
-                <p className="font-bold text-xs">
-                  {cameraAction === 'dest' ? 'ถ่ายภาพสด ณ สถานที่ปลายทาง' : 'ถ่ายภาพสด ณ ประตูวิทยาลัย'}
-                </p>
-                <p className="text-[10px] text-slate-400">ระบบบังคับเปิดกล้องสดเท่านั้น (ห้ามใช้รูปเก่า)</p>
-              </div>
-            </div>
-            <button
-              onClick={closeLiveCamera}
-              className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 hover:text-white"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="w-full max-w-md flex-1 my-3 relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center">
-            {capturedPhoto ? (
-              <div className="relative w-full h-full flex items-center justify-center">
-                <img src={capturedPhoto} alt="Snapshot Preview" className="w-full h-full object-contain" />
-                <div className="absolute bottom-3 left-3 bg-black/75 px-3 py-1.5 rounded-lg text-[10px] font-mono text-emerald-400">
-                  📍 {currentCoord.lat.toFixed(4)}, {currentCoord.lng.toFixed(4)} • {new Date().toLocaleTimeString()}
-                </div>
-              </div>
-            ) : (
-              <div className="relative w-full h-full flex flex-col items-center justify-center">
-                <video ref={videoRef} playsInline autoPlay muted className="w-full h-full object-cover" />
-                <div className="absolute top-3 right-3 bg-red-600/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
-                  <span className="w-2 h-2 rounded-full bg-white"></span>
-                  LIVE CAMERA
-                </div>
-                <div className="absolute bottom-3 inset-x-3 text-center bg-black/60 backdrop-blur-xs py-1.5 px-2 rounded-lg text-[10px] text-slate-300">
-                  หันกล้องไปที่ป้ายสถานที่ หรือถ่ายภาพบริเวณที่อยู่เพื่อยืนยัน
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="w-full max-w-md flex flex-col gap-2 pt-2">
-            {capturedPhoto ? (
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => openLiveCamera(cameraAction)}
-                  className="py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-1.5"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  <span>ถ่ายใหม่</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmLivePhoto}
-                  disabled={uploadingPhoto}
-                  className="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg flex items-center justify-center gap-1.5 transition-all"
-                >
-                  {uploadingPhoto ? (
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>ยืนยันและเช็คอิน</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={takeSnapshot}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-sm shadow-lg flex items-center justify-center gap-2 cursor-pointer active:scale-95"
-                >
-                  <Camera className="w-5 h-5 text-amber-200" />
-                  <span>📸 กดชัตเตอร์ถ่ายภาพสด</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fileCameraInputRef.current?.click()}
-                  className="text-[11px] text-slate-400 hover:text-slate-200 text-center py-1 underline cursor-pointer"
-                >
-                  เปิดกล้องด้วยแอปกล้องของเครื่อง (มือถือ)
-                </button>
-              </div>
-            )}
-          </div>
+      {/* Auto Uploading Spinner Overlay */}
+      {uploadingPhoto && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-fadeIn">
+          <div className="w-14 h-14 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin mb-4" />
+          <h3 className="text-base font-bold text-white">กำลังอัปโหลดรูปภาพและเช็คอิน...</h3>
+          <p className="text-xs text-emerald-200/80 mt-1">ระบบกำลังบันทึกพิกัดดาวเทียมและรูปถ่ายสดให้อาจารย์</p>
         </div>
       )}
 
