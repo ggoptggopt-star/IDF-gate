@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -27,6 +27,7 @@ import {
   Radio,
   Signal,
   Smartphone,
+  Monitor,
 } from 'lucide-react';
 import { LeaveRequest } from '@/types';
 import { useAuth } from '@/context/AuthContext';
@@ -59,12 +60,14 @@ function TripContent() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Real-time Live GPS State (100% Real Live GPS)
+  // Determine role: Student on mobile sends GPS; Teacher on PC monitors
+  const isStudent = user?.role === 'student' || user?.id === request?.student_id;
+
+  // Real-time Live Coordinates
   const [currentCoord, setCurrentCoord] = useState<{ lat: number; lng: number }>({
     lat: OICEC_LAT,
     lng: OICEC_LNG,
   });
-  const [isTransmittingGPS, setIsTransmittingGPS] = useState(true);
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [lastPingAt, setLastPingAt] = useState<string | null>(null);
@@ -87,7 +90,31 @@ function TripContent() {
   const riderMarkerRef = useRef<any>(null);
   const destMarkerRef = useRef<any>(null);
 
-  // Load request data
+  // Helper to build/update popup HTML dynamically
+  const buildPopupHtml = useCallback(
+    (lat: number, lng: number, timeStr?: string) => {
+      const studentName = request?.student_name || 'นายอัครชา เปมะวิภาต';
+      const classGroup = request?.group_code || 'ปวส.2/1';
+      return `
+        <div style="font-family:sans-serif;font-size:12px;padding:3px;min-width:180px;">
+          <div style="font-weight:bold;color:#0f172a;font-size:13px;margin-bottom:2px;">${studentName} (${classGroup})</div>
+          <div style="color:#10b981;font-weight:600;display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+            <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#10b981;"></span>
+            <span>กำลังส่งสัญญาณ GPS สด</span>
+          </div>
+          <div style="background:#f1f5f9;padding:4px 6px;border-radius:6px;font-family:monospace;font-size:11px;color:#1e293b;border:1px solid #e2e8f0;">
+            พิกัด: ${lat.toFixed(5)}, ${lng.toFixed(5)}
+          </div>
+          <div style="color:#64748b;font-size:10px;margin-top:4px;">
+            อัปเดตล่าสุด: ${timeStr || lastPingAt || 'เรียลไทม์'}
+          </div>
+        </div>
+      `;
+    },
+    [request?.student_name, request?.group_code, lastPingAt]
+  );
+
+  // Load request data from server
   const fetchRequest = async () => {
     try {
       const res = await fetch(`/api/requests/${requestId}/trip`);
@@ -95,12 +122,21 @@ function TripContent() {
       if (data.success && data.request) {
         setRequest(data.request);
         const req = data.request;
+
         const liveLat = req.current_lat || OICEC_LAT;
         const liveLng = req.current_lng || OICEC_LNG;
 
         setCurrentCoord({ lat: liveLat, lng: liveLng });
+        if (data.latestLoc?.recorded_at) {
+          setLastPingAt(data.latestLoc.recorded_at.slice(11, 19) + ' น.');
+        }
+
         if (riderMarkerRef.current) {
           riderMarkerRef.current.setLatLng([liveLat, liveLng]);
+          const popup = riderMarkerRef.current.getPopup();
+          if (popup) {
+            popup.setContent(buildPopupHtml(liveLat, liveLng, data.latestLoc?.recorded_at?.slice(11, 19)));
+          }
         }
       }
     } catch (e) {
@@ -135,7 +171,6 @@ function TripContent() {
     async function initMap() {
       const L = await import('leaflet');
 
-      // Add CSS if needed
       if (!document.getElementById('leaflet-css')) {
         const link = document.createElement('link');
         link.id = 'leaflet-css';
@@ -210,18 +245,14 @@ function TripContent() {
         className: 'student-radar-pin',
         html: `
           <div style="position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;width:160px;height:90px;pointer-events:auto;cursor:pointer;">
-            <!-- Outer Pulsing Radar Waves -->
             <div style="position:absolute;top:28px;left:50%;transform:translate(-50%,-50%);width:78px;height:78px;border-radius:50%;background:rgba(34,197,94,0.3);animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;pointer-events:none;"></div>
             <div style="position:absolute;top:28px;left:50%;transform:translate(-50%,-50%);width:58px;height:58px;border-radius:50%;background:rgba(16,185,129,0.35);border:2px solid rgba(52,211,153,0.7);pointer-events:none;"></div>
 
-            <!-- Student Photo Avatar with Green Ring -->
             <div style="position:relative;width:50px;height:50px;border-radius:50%;overflow:hidden;border:3px solid #10b981;box-shadow:0 0 16px rgba(16,185,129,0.8),0 4px 12px rgba(0,0,0,0.6);background:#0f172a;z-index:10;">
               <img src="${avatarSrc}" alt="${studentName}" style="width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150';" />
-              <!-- Live Green Dot Badge -->
               <span style="position:absolute;bottom:2px;right:2px;width:11px;height:11px;border-radius:50%;background:#22c55e;border:2px solid #ffffff;box-shadow:0 0 6px #22c55e;"></span>
             </div>
 
-            <!-- Student Name & Class Pill -->
             <div style="margin-top:6px;background:rgba(15,23,42,0.95);color:#ffffff;padding:2.5px 9px;border-radius:9999px;font-size:11px;font-weight:700;border:1.5px solid #10b981;box-shadow:0 3px 10px rgba(0,0,0,0.5);white-space:nowrap;display:flex;align-items:center;gap:4px;z-index:10;">
               <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#22c55e;"></span>
               <span>${studentName}</span>
@@ -238,18 +269,12 @@ function TripContent() {
         zIndexOffset: 1000,
       }).addTo(map);
 
-      riderMarker.bindPopup(`
-        <div style="font-family:sans-serif;font-size:12px;padding:2px;">
-          <div style="font-weight:bold;color:#0f172a;margin-bottom:2px;">${studentName} (${classGroup})</div>
-          <div style="color:#10b981;font-weight:600;">🟢 กำลังแชร์พิกัด GPS สดจากมือถือ</div>
-          <div style="color:#64748b;font-size:10px;margin-top:3px;">พิกัด: ${initialLat.toFixed(5)}, ${initialLng.toFixed(5)}</div>
-        </div>
-      `);
+      riderMarker.bindPopup(buildPopupHtml(initialLat, initialLng));
 
       riderMarkerRef.current = riderMarker;
       mapInstanceRef.current = map;
 
-      // Fit bounds between student and destination
+      // Fit bounds
       const bounds = L.latLngBounds([[initialLat, initialLng], [destLat, destLng]]);
       map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
     }
@@ -263,15 +288,22 @@ function TripContent() {
         mapInstanceRef.current = null;
       }
     };
-  }, [request?.id]);
+  }, [request?.id, buildPopupHtml]);
 
-  // Real-time GPS Transmitter (Runs on Student's Mobile / Active Device)
+  // STUDENT TRANSMITTER: Only runs when current user is the student on mobile
   useEffect(() => {
+    if (!isStudent || isCompleted) return;
     if (typeof window === 'undefined' || !navigator.geolocation) {
       setGpsError('เบราว์เซอร์ไม่รองรับ Geolocation API');
       return;
     }
-    if (isCompleted || !isTransmittingGPS) return;
+
+    // Attempt to keep screen awake on mobile
+    if ('wakeLock' in navigator) {
+      try {
+        (navigator as any).wakeLock.request('screen').catch(() => {});
+      } catch {}
+    }
 
     let lastPingTime = 0;
 
@@ -287,15 +319,22 @@ function TripContent() {
         setGpsError(null);
         setCurrentCoord({ lat, lng });
 
+        const timeStr = new Date().toLocaleTimeString('th-TH');
+        setLastPingAt(timeStr);
+
         if (riderMarkerRef.current) {
           riderMarkerRef.current.setLatLng([lat, lng]);
+          const popup = riderMarkerRef.current.getPopup();
+          if (popup) {
+            popup.setContent(buildPopupHtml(lat, lng, timeStr));
+          }
         }
 
         if (autoCenter && mapInstanceRef.current) {
           mapInstanceRef.current.panTo([lat, lng]);
         }
 
-        // Throttle server transmission to once per 4 seconds
+        // Throttle transmission to server every 4 seconds
         const now = Date.now();
         if (now - lastPingTime > 4000) {
           lastPingTime = now;
@@ -311,16 +350,15 @@ function TripContent() {
                 heading,
               }),
             });
-            setLastPingAt(new Date().toLocaleTimeString('th-TH'));
           } catch (err) {
-            console.error('Failed to transmit GPS ping:', err);
+            console.error('Failed to transmit GPS:', err);
           }
         }
       },
       (err) => {
-        console.warn('Geolocation watchPosition status:', err);
+        console.warn('Geolocation status:', err);
         if (err.code === 1) {
-          setGpsError('โปรดเปิดอนุญาตสิทธิ์เข้าถึงพิกัด GPS บนเบราว์เซอร์');
+          setGpsError('โปรดอนุญาตสิทธิ์เข้าถึงพิกัด GPS บนมือถือ');
         } else {
           setGpsError('กำลังเชื่อมต่อสัญญาณดาวเทียม GPS...');
         }
@@ -328,16 +366,16 @@ function TripContent() {
       {
         enableHighAccuracy: true,
         maximumAge: 3000,
-        timeout: 12000,
+        timeout: 10000,
       }
     );
 
     return () => {
       navigator.geolocation.clearWatch(watchId);
     };
-  }, [requestId, isTransmittingGPS, isCompleted, autoCenter]);
+  }, [isStudent, isCompleted, requestId, autoCenter, buildPopupHtml]);
 
-  // Real-time GPS Poller (Fetches latest student coordinates for Teachers / Viewers)
+  // TEACHER / VIEWER RADAR POLLER: Runs on Teacher's PC to display live student position
   useEffect(() => {
     if (isCompleted) return;
 
@@ -348,32 +386,44 @@ function TripContent() {
         if (data.success && data.request) {
           const r = data.request;
           setRequest(r);
+
           if (r.current_lat && r.current_lng) {
             setCurrentCoord({ lat: r.current_lat, lng: r.current_lng });
+            const timeStr = data.latestLoc?.recorded_at
+              ? data.latestLoc.recorded_at.slice(11, 19) + ' น.'
+              : new Date().toLocaleTimeString('th-TH');
+
+            setLastPingAt(timeStr);
+
             if (riderMarkerRef.current) {
               riderMarkerRef.current.setLatLng([r.current_lat, r.current_lng]);
+              const popup = riderMarkerRef.current.getPopup();
+              if (popup) {
+                popup.setContent(buildPopupHtml(r.current_lat, r.current_lng, timeStr));
+              }
             }
+
             if (autoCenter && mapInstanceRef.current) {
               mapInstanceRef.current.panTo([r.current_lat, r.current_lng]);
             }
           }
         }
       } catch (err) {
-        console.error('Polling error:', err);
+        console.error('Teacher polling error:', err);
       }
-    }, 3500);
+    }, 2500);
 
     return () => clearInterval(interval);
-  }, [requestId, isCompleted, autoCenter]);
+  }, [requestId, isCompleted, autoCenter, buildPopupHtml]);
 
-  // Center on student marker
+  // Center map on student marker
   const centerOnStudent = () => {
     if (mapInstanceRef.current) {
       mapInstanceRef.current.setView([currentCoord.lat, currentCoord.lng], 16, { animate: true });
     }
   };
 
-  // Open Live Camera
+  // Open Live Camera (for Student Check-in)
   const openLiveCamera = async (type: 'dest' | 'return') => {
     setCameraAction(type);
     setCapturedPhoto(null);
@@ -391,7 +441,7 @@ function TripContent() {
         }
       }
     } catch (e) {
-      console.warn('WebRTC Camera not available or denied, falling back to capture="environment":', e);
+      console.warn('WebRTC Camera fallback:', e);
     }
   };
 
@@ -438,7 +488,6 @@ function TripContent() {
     }
   };
 
-  // Upload captured photo and complete check-in
   const handleConfirmLivePhoto = async () => {
     if (!capturedPhoto) return;
     setUploadingPhoto(true);
@@ -472,7 +521,6 @@ function TripContent() {
     }
   };
 
-  // Handle Dynamic Actions
   const handleAction = async (
     action: 'arrive_dest' | 'start_return' | 'arrive_college' | 'complete_trip',
     photoUrl?: string | null
@@ -509,7 +557,7 @@ function TripContent() {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white space-y-3">
         <div className="w-10 h-10 border-3 border-emerald-400 border-t-transparent rounded-full animate-spin" />
-        <p className="text-xs text-slate-400">กำลังเชื่อมต่อระบบพิกัดสด Smart Gate Pass AI...</p>
+        <p className="text-xs text-slate-400">กำลังเชื่อมต่อระบบเรดาร์ติดตามพิกัด Smart Gate Pass AI...</p>
       </div>
     );
   }
@@ -533,36 +581,29 @@ function TripContent() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col relative pb-32">
-      {/* Top Floating Header with Mandatory Screen Lock */}
+      {/* Top Floating Header */}
       <header className="px-4 py-3 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-3">
-          {isCompleted ? (
-            <Link
-              href="/"
-              className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center transition-colors"
-              title="กลับหน้าหลัก"
-            >
-              <ChevronLeft className="w-5 h-5 text-slate-300" />
-            </Link>
-          ) : (
-            <div
-              className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center"
-              title="ระบบติดตามพิกัดเรียลไทม์จนกว่าจะสิ้นสุดคำร้อง"
-            >
-              <Lock className="w-4 h-4" />
-            </div>
-          )}
+          <Link
+            href="/"
+            className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center transition-colors"
+            title="กลับหน้าหลัก"
+          >
+            <ChevronLeft className="w-5 h-5 text-slate-300" />
+          </Link>
 
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-sm tracking-wide text-white">Live Tracking Mode</span>
+              <span className="font-bold text-sm tracking-wide text-white">
+                {isStudent ? 'โหมดนำทาง (มือถือนักเรียน)' : 'เรดาร์ติดตามสด (จออาจารย์)'}
+              </span>
               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                GPS สดเรียลไทม์
+                {isStudent ? 'GPS สดมือถือ' : 'คอมฯ เฝ้าดูสด'}
               </span>
             </div>
             <p className="text-[10px] text-slate-400">
-              {request.request_code} • {isOneWay ? 'กรณีไม่กลับ (สิ้นสุดที่บ้าน)' : 'กรณีต้องกลับวิทยาลัย'}
+              {request.request_code} • {request.student_name} ({request.group_code || 'ปวส.'})
             </p>
           </div>
         </div>
@@ -570,28 +611,37 @@ function TripContent() {
         <button
           onClick={fetchRequest}
           className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition-colors"
-          title="รีเฟรชข้อมูล"
+          title="รีเฟรชข้อมูลพิกัดล่าสุด"
         >
           <RotateCcw className="w-4 h-4" />
         </button>
       </header>
 
-      {/* Mandatory Notification for Active Trips */}
-      {!isCompleted && (
-        <div className="bg-emerald-950/70 border-b border-emerald-800/50 px-3.5 py-1.5 flex items-center justify-between gap-2 text-[11px] text-emerald-200">
-          <div className="flex items-center gap-2">
-            <Radio className="w-3.5 h-3.5 text-emerald-400 shrink-0 animate-pulse" />
-            <span>
-              <strong>โหมดติดตามตัวนักเรียน:</strong> ระบบใช้ GPS สดจากมือถือเปรียบเสมือนเครื่องติดตามตัว
-            </span>
-          </div>
-          {lastPingAt && (
-            <span className="text-[10px] text-emerald-300/80 shrink-0">
-              สัญญาณ: {lastPingAt}
-            </span>
+      {/* Role-Specific Live Status Banner */}
+      <div className="bg-emerald-950/70 border-b border-emerald-800/50 px-3.5 py-1.5 flex items-center justify-between gap-2 text-[11px] text-emerald-200">
+        <div className="flex items-center gap-2">
+          {isStudent ? (
+            <Smartphone className="w-3.5 h-3.5 text-emerald-400 shrink-0 animate-pulse" />
+          ) : (
+            <Monitor className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
           )}
+          <span>
+            {isStudent ? (
+              <strong>มือถือนักเรียน:</strong>
+            ) : (
+              <strong>จอคอมพิวเตอร์อาจารย์:</strong>
+            )}{' '}
+            {isStudent
+              ? 'กำลังส่งพิกัด GPS จริงจากมือถือให้อาจารย์แบบเรียลไทม์'
+              : `กำลังรับสัญญาณติดตามตำแหน่งสดของ ${request.student_name}`}
+          </span>
         </div>
-      )}
+        {lastPingAt && (
+          <span className="text-[10px] text-emerald-300/80 shrink-0 font-mono">
+            {lastPingAt}
+          </span>
+        )}
+      </div>
 
       {/* Full-bleed Interactive Leaflet Map */}
       <div className="relative w-full h-80 sm:h-96 bg-slate-950 border-b border-slate-800">
@@ -616,7 +666,7 @@ function TripContent() {
               ? 'สิ้นสุดการเดินทาง ✓'
               : stage === 'at_dest'
               ? 'ถึงที่หมายแล้ว 📍'
-              : 'นักเรียนกำลังเดินทาง 🚶'}
+              : 'กำลังเดินทาง 🚶'}
           </span>
         </div>
 
@@ -632,16 +682,18 @@ function TripContent() {
 
       {/* Main Body Content */}
       <div className="p-4 space-y-4">
-        {/* Real-time Mobile GPS Tracker Status Card */}
+        {/* Real-time Status Card */}
         <div className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-4 shadow-md space-y-3">
           <div className="flex items-center justify-between border-b border-slate-700/60 pb-2.5">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
-                <Smartphone className="w-4 h-4" />
+                {isStudent ? <Smartphone className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
               </div>
               <div>
                 <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <span>สถานะเครื่องติดตาม GPS (มือถือนักเรียน)</span>
+                  <span>
+                    {isStudent ? 'สถานะเครื่องส่ง GPS (มือถือนักเรียน)' : 'สถานะเรดาร์ติดตามตัว (จอคอมฯ อาจารย์)'}
+                  </span>
                   <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
                 </h3>
                 <p className="text-[10px] text-slate-400">
@@ -650,17 +702,10 @@ function TripContent() {
               </div>
             </div>
 
-            <button
-              onClick={() => setIsTransmittingGPS(!isTransmittingGPS)}
-              className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-all cursor-pointer flex items-center gap-1.5 ${
-                isTransmittingGPS
-                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/80'
-                  : 'bg-slate-700/80 text-slate-400 border-slate-600'
-              }`}
-            >
-              <Signal className="w-3 h-3" />
-              <span>{isTransmittingGPS ? '📡 สัญญาณสด: เปิด' : 'ปิดการส่ง'}</span>
-            </button>
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300 bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-700/80">
+              <Signal className="w-3 h-3 text-emerald-400 animate-pulse" />
+              <span>เรียลไทม์ (Live)</span>
+            </div>
           </div>
 
           {/* GPS Details Grid */}
@@ -673,16 +718,16 @@ function TripContent() {
             </div>
 
             <div className="bg-slate-900/80 border border-slate-700/50 rounded-xl p-2.5">
-              <div className="text-[10px] text-slate-400">ความแม่นยำ GPS</div>
-              <div className="font-bold text-white text-[11px] mt-0.5 flex items-center gap-1">
-                {gpsAccuracy ? `±${gpsAccuracy} เมตร` : 'ความแม่นยำสูง (High)'}
+              <div className="text-[10px] text-slate-400">ปลายทางที่ได้รับอนุญาต</div>
+              <div className="font-bold text-white text-[11px] mt-0.5 truncate">
+                {request.destination_name}
               </div>
             </div>
 
             <div className="bg-slate-900/80 border border-slate-700/50 rounded-xl p-2.5 col-span-2 sm:col-span-1">
-              <div className="text-[10px] text-slate-400">อัปเดตล่าสุด</div>
-              <div className="font-semibold text-slate-200 text-[11px] mt-0.5">
-                {lastPingAt || 'เรียลไทม์ (Live)'}
+              <div className="text-[10px] text-slate-400">เวลาอัปเดตล่าสุด</div>
+              <div className="font-semibold text-slate-200 text-[11px] mt-0.5 font-mono">
+                {lastPingAt || 'กำลังรับสัญญาณ'}
               </div>
             </div>
           </div>
@@ -898,66 +943,33 @@ function TripContent() {
         )}
       </div>
 
-      {/* Bottom Sticky Action Bar (Live Camera Only Check-in Controls) */}
+      {/* Bottom Sticky Action Bar */}
       {!isCompleted && (
         <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-4 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 z-40">
-          {/* CASE A: One-Way (e.g. Return Home) */}
-          {isOneWay ? (
-            <button
-              onClick={() => openLiveCamera('dest')}
-              disabled={submitting}
-              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
-            >
-              {submitting ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <>
-                  <Camera className="w-5 h-5 text-amber-300" />
-                  <span>📸 ถ่ายรูปสดเช็คอินถึงบ้าน (จบคำร้อง)</span>
-                </>
-              )}
-            </button>
+          {/* A. If Viewer is Teacher / Not Student: Teacher View Controls */}
+          {!isStudent ? (
+            <div className="flex items-center justify-between gap-3">
+              <button
+                onClick={centerOnStudent}
+                className="flex-1 py-3 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98"
+              >
+                <Crosshair className="w-4 h-4" />
+                <span>โฟกัสตัวนักเรียน</span>
+              </button>
+              <button
+                onClick={fetchRequest}
+                className="flex-1 py-3 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg cursor-pointer transition-all active:scale-98"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>รีเฟรชพิกัดสด</span>
+              </button>
+            </div>
           ) : (
-            /* CASE B: Round-Trip (e.g. Hospital / Department Project) */
-            <div className="space-y-2">
-              {stage === 'heading_to_dest' || stage === 'not_started' ? (
+            /* B. If Viewer is Student: Camera Check-in Controls */
+            <div>
+              {isOneWay ? (
                 <button
                   onClick={() => openLiveCamera('dest')}
-                  disabled={submitting}
-                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm shadow-lg shadow-blue-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
-                >
-                  {submitting ? (
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <Camera className="w-5 h-5 text-amber-300" />
-                      <span>📸 ถ่ายรูปสดเช็คอินถึงจุดหมาย ({request.destination_name})</span>
-                    </>
-                  )}
-                </button>
-              ) : stage === 'at_dest' ? (
-                <div className="space-y-2">
-                  <div className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-2 text-center font-medium">
-                    📍 เช็คอินจุดหมายเรียบร้อยแล้ว เมื่อเสร็จธุระกดเริ่มเดินทางกลับ
-                  </div>
-                  <button
-                    onClick={() => handleAction('start_return')}
-                    disabled={submitting}
-                    className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-900 font-bold text-sm shadow-lg shadow-amber-900/30 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
-                  >
-                    {submitting ? (
-                      <div className="w-5 h-5 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
-                    ) : (
-                      <>
-                        <RotateCcw className="w-5 h-5" />
-                        <span>🔄 เริ่มเดินทางกลับวิทยาลัย</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              ) : stage === 'heading_back' ? (
-                <button
-                  onClick={() => openLiveCamera('return')}
                   disabled={submitting}
                   className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
                 >
@@ -966,11 +978,65 @@ function TripContent() {
                   ) : (
                     <>
                       <Camera className="w-5 h-5 text-amber-300" />
-                      <span>📸 ถ่ายรูปสดรายงานตัวกลับถึงวิทยาลัย</span>
+                      <span>📸 ถ่ายรูปสดเช็คอินถึงบ้าน (จบคำร้อง)</span>
                     </>
                   )}
                 </button>
-              ) : null}
+              ) : (
+                <div className="space-y-2">
+                  {stage === 'heading_to_dest' || stage === 'not_started' ? (
+                    <button
+                      onClick={() => openLiveCamera('dest')}
+                      disabled={submitting}
+                      className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm shadow-lg shadow-blue-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      {submitting ? (
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <Camera className="w-5 h-5 text-amber-300" />
+                          <span>📸 ถ่ายรูปสดเช็คอินถึงจุดหมาย ({request.destination_name})</span>
+                        </>
+                      )}
+                    </button>
+                  ) : stage === 'at_dest' ? (
+                    <div className="space-y-2">
+                      <div className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-2 text-center font-medium">
+                        📍 เช็คอินจุดหมายเรียบร้อยแล้ว เมื่อเสร็จธุระกดเริ่มเดินทางกลับ
+                      </div>
+                      <button
+                        onClick={() => handleAction('start_return')}
+                        disabled={submitting}
+                        className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-900 font-bold text-sm shadow-lg shadow-amber-900/30 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+                      >
+                        {submitting ? (
+                          <div className="w-5 h-5 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
+                        ) : (
+                          <>
+                            <RotateCcw className="w-5 h-5" />
+                            <span>🔄 เริ่มเดินทางกลับวิทยาลัย</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ) : stage === 'heading_back' ? (
+                    <button
+                      onClick={() => openLiveCamera('return')}
+                      disabled={submitting}
+                      className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-900/40 flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      {submitting ? (
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <Camera className="w-5 h-5 text-amber-300" />
+                          <span>📸 ถ่ายรูปสดรายงานตัวกลับถึงวิทยาลัย</span>
+                        </>
+                      )}
+                    </button>
+                  ) : null}
+                </div>
+              )}
             </div>
           )}
         </div>

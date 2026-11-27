@@ -21,7 +21,25 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'ไม่พบข้อมูลคำร้อง' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, request });
+    // Retrieve latest GPS location if available
+    const latestLoc = queryOne<{ lat: number; lng: number; recorded_at: string; speed: number; heading: number }>(`
+      SELECT lat, lng, recorded_at, speed, heading
+      FROM live_locations
+      WHERE request_id = ?
+      ORDER BY recorded_at DESC, id DESC
+      LIMIT 1
+    `, id);
+
+    if (latestLoc) {
+      request.current_lat = latestLoc.lat;
+      request.current_lng = latestLoc.lng;
+    }
+
+    return NextResponse.json({
+      success: true,
+      request,
+      latestLoc: latestLoc || null
+    });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
