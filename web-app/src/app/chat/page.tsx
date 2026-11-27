@@ -65,6 +65,13 @@ interface ChatMessage {
 }
 
 // Preset In-Chat Capsule Option Sets
+const TEACHER_MENU_OPTIONS: ChatOption[] = [
+  { label: '📋 ตรวจสอบคิวรออนุมัติ', actionValue: 'act_teacher_queue', variant: 'primary' },
+  { label: '🚶 ติดตามนักเรียนที่อยู่นอกวิทยาลัย', actionValue: 'act_teacher_tracking', variant: 'default' },
+  { label: '📊 สรุปรายงานคำร้องวันนี้', actionValue: 'act_teacher_summary', variant: 'default' },
+  { label: '🛡️ สายพานการอนุมัติ 5 ขั้นตอน', actionValue: 'act_teacher_rules', variant: 'default' },
+];
+
 const MAIN_MENU_OPTIONS: ChatOption[] = [
   { label: '🚪 ขออนุญาตออกนอกวิทยาลัย', actionValue: 'act_leave', variant: 'primary' },
   { label: '📋 ติดตามสถานะคำร้องของฉัน', actionValue: 'act_status', variant: 'default' },
@@ -184,6 +191,7 @@ function ChatContent() {
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const prevPendingIdsRef = useRef<Set<string>>(new Set());
 
   const getApproverStep = (role?: string): number => {
     switch (role) {
@@ -282,9 +290,19 @@ function ChatContent() {
         }
       }
 
-      // Filter out student greetings from teacher view
+      // Filter out student greetings & leave request messages from teacher view
       if (isApprover) {
-        if (m.text && m.text.includes('ผมคือน้องเกต AI ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัย')) {
+        if (
+          m.text &&
+          (m.text.includes('ผมคือน้องเกต AI ผู้ช่วยระบบขออนุญาตออกนอกวิทยาลัย') ||
+            m.text.includes('ขออนุญาตออกนอกวิทยาลัย') ||
+            m.text.includes('กรุณาเลือกหมวดหมู่') ||
+            m.text.includes('หมวดหมู่: ') ||
+            m.text.includes('ระบุพิกัดสถานที่ปลายทาง') ||
+            m.text.includes('เลือกบนแผนที่ GPS') ||
+            m.text.includes('ช่วงเวลาเดินทางในแผนที่') ||
+            m.text.includes('ยินดีให้บริการครับ\nแตะเลือกเมนูด้านล่าง'))
+        ) {
           return false;
         }
       }
@@ -375,11 +393,11 @@ function ChatContent() {
     const isTargetApprover = (targetRole && targetRole !== 'student' && targetRole !== 'guard') || targetRole === 'admin';
 
     if (isTargetApprover) {
-      let greetText = `สวัสดีครับ ${targetUser?.full_name || 'คุณครู'} (${getRoleTitle(targetRole)}) 👋`;
+      let greetText = `สวัสดีครับ ${targetUser?.full_name || 'คุณครู'} (${getRoleTitle(targetRole)}) 👋\nผมคือ AI ผู้ช่วยประจำสายพานการพิจารณาคำร้อง ยินดีให้บริการครับ`;
       if (pendingCount > 0) {
-        greetText += `\n\nวันนี้มีคำร้องขออนุญาตออกนอกสถานศึกษาของนักศึกษารอดำเนินการในขั้นของท่าน (${pendingCount} รายการ) ครับ\nท่านสามารถพิมพ์ "อนุมัติ" หรือสอบถามระบบได้เลยครับ`;
+        greetText += `\n\n📌 ขณะนี้มีคำร้องขออนุญาตออกนอกสถานศึกษารอดำเนินการในขั้นของท่าน (${pendingCount} รายการ) ครับ\nท่านสามารถแตะเลือกเมนูด้านล่าง หรือพิมพ์ "อนุมัติ" ได้เลยครับ`;
       } else {
-        greetText += `\n\nขณะนี้ไม่มีคำร้องค้างรอการพิจารณาครับ มีอะไรให้ผมช่วยประสานงาน พิมพ์แจ้งได้เลยครับ`;
+        greetText += `\n\n✓ ขณะนี้ไม่มีคำร้องค้างรอการพิจารณาครับ ท่านสามารถตรวจสอบคิว ติดตามนักเรียนที่กำลังอยู่นอกวิทยาลัย หรือดูสรุปรายงานได้เลยครับ`;
       }
       return {
         id: `greet-${Date.now()}`,
@@ -389,6 +407,7 @@ function ChatContent() {
         timestamp: Date.now(),
         dateStr: todayStr,
         poweredBy: 'Google Gemini AI',
+        options: TEACHER_MENU_OPTIONS,
       };
     }
 
@@ -450,6 +469,31 @@ function ChatContent() {
     setAskAttachmentNow(false);
     setChatMode('menu');
 
+    if (isApprover) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `teacher-menu-ret-${Date.now()}`,
+          sender: 'student',
+          text: '🏠 กลับสู่เมนูหลักอาจารย์',
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+        {
+          id: `bot-teacher-menu-${Date.now()}`,
+          sender: 'bot',
+          text: `ยินดีให้บริการครับ ท่าน (${getRoleTitle(user?.role)}) สามารถแตะเลือกเมนูที่ต้องการ หรือพิมพ์สั่งงานได้เลยครับ:`,
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: todayStr,
+          poweredBy: 'Google Gemini AI',
+          options: TEACHER_MENU_OPTIONS,
+        },
+      ]);
+      return;
+    }
+
     setMessages((prev) => [
       ...prev,
       {
@@ -473,6 +517,233 @@ function ChatContent() {
     ]);
   };
 
+  // Teacher: Check Queue of Requests
+  const handleTeacherQueueCheck = async () => {
+    const now = new Date();
+    const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    try {
+      const res = await fetch('/api/requests');
+      const data = await res.json();
+      const allReqs: LeaveRequest[] = data.success && data.requests ? data.requests : [];
+
+      const waitingForMe = allReqs.filter((r) => {
+        if (r.overall_status !== 'pending') return false;
+        if (user?.role === 'admin') return true;
+        return r.current_step === userStep;
+      });
+
+      setPendingRequests(waitingForMe);
+
+      if (waitingForMe.length === 0) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `teacher-queue-click-${Date.now()}`,
+            sender: 'student',
+            text: '📋 ตรวจสอบคิวรออนุมัติ',
+            time: nowTime,
+            timestamp: Date.now(),
+            dateStr: todayStr,
+          },
+          {
+            id: `bot-queue-empty-${Date.now()}`,
+            sender: 'bot',
+            text: `ขณะนี้ไม่มีคำร้องค้างรอการพิจารณาในขั้นของท่าน (${getRoleTitle(user?.role)}) ครับ 🎉\nหากมีคำร้องใหม่ยื่นเข้ามา ระบบจะส่งเสียงแจ้งเตือนและส่งคำร้องมาที่ห้องแชทนี้ทันทีครับ`,
+            time: nowTime,
+            timestamp: Date.now() + 50,
+            dateStr: todayStr,
+            poweredBy: 'Google Gemini AI',
+            options: [{ label: '🏠 เมนูหลักอาจารย์', actionValue: 'act_teacher_menu', variant: 'home' }],
+          },
+        ]);
+      } else {
+        const queueMessages: ChatMessage[] = [
+          {
+            id: `teacher-queue-click-${Date.now()}`,
+            sender: 'student',
+            text: '📋 ตรวจสอบคิวรออนุมัติ',
+            time: nowTime,
+            timestamp: Date.now(),
+            dateStr: todayStr,
+          },
+          {
+            id: `bot-queue-intro-${Date.now()}`,
+            sender: 'bot',
+            text: `พบคำร้องรอดำเนินการในขั้นของท่าน (${waitingForMe.length} รายการ) ครับ:\nท่านสามารถกดปุ่ม [✓ อนุมัติ] หรือ [✗ ไม่อนุมัติ] ที่การ์ดคำร้องด้านล่างได้ทันที:`,
+            time: nowTime,
+            timestamp: Date.now() + 20,
+            dateStr: todayStr,
+            poweredBy: 'Google Gemini AI',
+          },
+        ];
+
+        waitingForMe.forEach((req, idx) => {
+          queueMessages.push({
+            id: `bot-queue-card-${req.id}-${Date.now() + idx}`,
+            sender: 'bot',
+            time: nowTime,
+            timestamp: Date.now() + 50 + idx * 20,
+            dateStr: todayStr,
+            requestCard: req,
+            options:
+              idx === waitingForMe.length - 1
+                ? [{ label: '🏠 เมนูหลักอาจารย์', actionValue: 'act_teacher_menu', variant: 'home' }]
+                : undefined,
+          });
+        });
+
+        setMessages((prev) => [...prev, ...queueMessages]);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Teacher: Track active outgoing students
+  const handleTeacherTrackingCheck = async () => {
+    const now = new Date();
+    const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    try {
+      const res = await fetch('/api/requests');
+      const data = await res.json();
+      const allReqs: LeaveRequest[] = data.success && data.requests ? data.requests : [];
+
+      const traveling = allReqs.filter((r) => {
+        if (r.overall_status === 'returned' || r.overall_status === 'rejected') return false;
+        return (
+          r.overall_status === 'approved' ||
+          r.synced_to_gate === 1 ||
+          r.trip_stage === 'heading_to_dest' ||
+          r.trip_stage === 'at_dest' ||
+          r.trip_stage === 'heading_back' ||
+          (r.overall_status === 'completed_exit' && r.is_return_required === 1 && !r.return_arrived_at)
+        );
+      });
+
+      if (traveling.length === 0) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `teacher-track-click-${Date.now()}`,
+            sender: 'student',
+            text: '🚶 ติดตามนักเรียนที่อยู่นอกวิทยาลัย',
+            time: nowTime,
+            timestamp: Date.now(),
+            dateStr: todayStr,
+          },
+          {
+            id: `bot-track-empty-${Date.now()}`,
+            sender: 'bot',
+            text: 'ขณะนี้ไม่มีนักเรียนกำลังเดินทางอยู่นอกสถานศึกษาครับ\n(นักเรียนทุกคนอยู่ภายในวิทยาลัย หรือเดินทางกลับและสแกนใบหน้ารายงานตัวเรียบร้อยแล้ว)',
+            time: nowTime,
+            timestamp: Date.now() + 50,
+            dateStr: todayStr,
+            poweredBy: 'Google Gemini AI',
+            options: [{ label: '🏠 เมนูหลักอาจารย์', actionValue: 'act_teacher_menu', variant: 'home' }],
+          },
+        ]);
+      } else {
+        let msg = `📍 รายชื่อนักเรียนที่กำลังอยู่นอกสถานศึกษา (${traveling.length} คน):\n\n`;
+        traveling.forEach((t, i) => {
+          const stageText =
+            t.trip_stage === 'at_dest'
+              ? 'ถึงจุดหมายแล้ว 📍'
+              : t.trip_stage === 'heading_back'
+              ? 'กำลังเดินทางกลับ 🔄'
+              : 'กำลังเดินทางไปจุดหมาย 🚶';
+          msg += `${i + 1}. ${t.student_name} (${t.group_code || 'ปวส.2/1'})\n`;
+          msg += `   • ปลายทาง: ${t.destination_name}\n`;
+          msg += `   • สถานะ: ${stageText} (กำหนดกลับ: ${t.allowed_end_time} น.)\n`;
+          if (t.current_lat && t.current_lng) {
+            msg += `   • พิกัดดาวเทียม: ${t.current_lat.toFixed(5)}, ${t.current_lng.toFixed(5)}\n`;
+          }
+          msg += `   👉 [แตะเพื่อดูแผนที่เรดาร์สด](/trip/${t.id})\n\n`;
+        });
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `teacher-track-click-${Date.now()}`,
+            sender: 'student',
+            text: '🚶 ติดตามนักเรียนที่อยู่นอกวิทยาลัย',
+            time: nowTime,
+            timestamp: Date.now(),
+            dateStr: todayStr,
+          },
+          {
+            id: `bot-track-list-${Date.now()}`,
+            sender: 'bot',
+            text: msg.trim(),
+            time: nowTime,
+            timestamp: Date.now() + 50,
+            dateStr: todayStr,
+            poweredBy: 'Google Gemini AI',
+            options: [{ label: '🏠 เมนูหลักอาจารย์', actionValue: 'act_teacher_menu', variant: 'home' }],
+          },
+        ]);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Teacher: Summary report of today
+  const handleTeacherSummaryCheck = async () => {
+    const now = new Date();
+    const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    try {
+      const res = await fetch('/api/requests');
+      const data = await res.json();
+      const allReqs: LeaveRequest[] = data.success && data.requests ? data.requests : [];
+
+      const todayReqs = allReqs.filter((r) => r.leave_date === todayStr || !r.leave_date);
+      const total = todayReqs.length;
+      const approved = todayReqs.filter((r) => r.overall_status === 'approved' || r.synced_to_gate === 1).length;
+      const pending = todayReqs.filter((r) => r.overall_status === 'pending').length;
+      const returned = todayReqs.filter((r) => r.overall_status === 'returned').length;
+      const rejected = todayReqs.filter((r) => r.overall_status === 'rejected').length;
+
+      const summaryText =
+        `📊 สรุปรายงานคำร้องขออนุญาตออกนอกวิทยาลัย (ประจำวันที่ ${todayStr}):\n\n` +
+        `• 📋 คำร้องทั้งหมดวันนี้: ${total} รายการ\n` +
+        `• ⏳ รอดำเนินการในระบบ: ${pending} รายการ (ในขั้นของท่าน: ${pendingRequests.length} รายการ)\n` +
+        `• ✅ อนุมัติผ่านครบ 5 ขั้นแล้ว: ${approved} รายการ\n` +
+        `• 🏠 รายงานตัวกลับถึงวิทยาลัยเรียบร้อย: ${returned} รายการ\n` +
+        `• ❌ ไม่อนุมัติ / ปฏิเสธ: ${rejected} รายการ\n\n` +
+        `ไม้กั้น AI ป้อม รปภ. ประตู 1 และระบบติดตาม GPS สด ทำงานปกติครับ 🛡️`;
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `teacher-summary-click-${Date.now()}`,
+          sender: 'student',
+          text: '📊 สรุปรายงานคำร้องวันนี้',
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+        {
+          id: `bot-summary-res-${Date.now()}`,
+          sender: 'bot',
+          text: summaryText,
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: todayStr,
+          poweredBy: 'Google Gemini AI',
+          options: [{ label: '🏠 เมนูหลักอาจารย์', actionValue: 'act_teacher_menu', variant: 'home' }],
+        },
+      ]);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   // Handle In-Chat Capsule Option Click (Self-Disappearing on Select)
   const handleOptionClick = async (messageId: string, opt: ChatOption) => {
     // 1. Immediately remove buttons from previous messages so it leaves pure chat history
@@ -483,6 +754,48 @@ function ChatContent() {
     const now = new Date();
     const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    // Teacher Menu Actions
+    if (opt.actionValue === 'act_teacher_menu') {
+      handleReturnToMainMenu();
+      return;
+    }
+    if (opt.actionValue === 'act_teacher_queue') {
+      await handleTeacherQueueCheck();
+      return;
+    }
+    if (opt.actionValue === 'act_teacher_tracking') {
+      await handleTeacherTrackingCheck();
+      return;
+    }
+    if (opt.actionValue === 'act_teacher_summary') {
+      await handleTeacherSummaryCheck();
+      return;
+    }
+    if (opt.actionValue === 'act_teacher_rules') {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `teacher-rules-user-${Date.now()}`,
+          sender: 'student',
+          text: '🛡️ สายพานการอนุมัติ 5 ขั้นตอน & ระเบียบวิทยาลัย',
+          time: nowTime,
+          timestamp: Date.now(),
+          dateStr: todayStr,
+        },
+        {
+          id: `teacher-rules-bot-${Date.now()}`,
+          sender: 'bot',
+          text: `แนวทางและสายพานการพิจารณาคำร้อง 5 ระดับ (OICEC):\n\n1. ครูผู้สอนประจำวิชา: ตรวจสอบตารางสอนและเวลาเรียน (คาบเช้า 08:00-12:00, คาบบ่าย 13:00-17:00)\n2. ครูที่ปรึกษา: ตรวจสอบพฤติกรรม ยืนยันความจำเป็น และติดต่อผู้ปกครองหากจำเป็น\n3. หัวหน้าแผนกวิชา: ตรวจสอบความถูกต้องของแผนกวิชาพาณิชยกรรม/ธุรกิจดิจิทัล\n4. งานปกครอง: ตรวจสอบประวัติทางวินัยและการแต่งกาย\n5. รองผู้อำนวยการฝ่ายพัฒนากิจการฯ: อนุมัติขั้นสุดท้ายเพื่อส่งสิทธิ์ไปยังไม้กั้น AI ประตู 1\n\n📌 เมื่ออนุมัติครบ 5 ขั้น ไม้กั้นจะเปิดให้สแกนออกอัตโนมัติ และระบบจะเริ่มติดตาม GPS แบบเรียลไทม์`,
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: todayStr,
+          poweredBy: 'Google Gemini AI',
+          options: [{ label: '🏠 เมนูหลักอาจารย์', actionValue: 'act_teacher_menu', variant: 'home' }],
+        },
+      ]);
+      return;
+    }
 
     // A. Main Menu Action: Return to main menu
     if (opt.actionValue === 'act_main_menu') {
@@ -872,11 +1185,19 @@ function ChatContent() {
   // Helper: Get active options for a message bubble
   // Rule: ONLY the latest message in the conversation displays buttons! Old messages are clean.
   const getOptionsForMessage = (m: ChatMessage, index: number): ChatOption[] | null => {
-    if (isApprover || isGuard || m.sender !== 'bot') return null;
-
     // Only render options on the very latest message
     const isLatest = index === messages.length - 1;
-    if (!isLatest) return null;
+    if (!isLatest || m.sender !== 'bot') return null;
+
+    // Teacher / Approver role options
+    if (isApprover) {
+      if (m.options && m.options.length > 0) {
+        return m.options;
+      }
+      return TEACHER_MENU_OPTIONS;
+    }
+
+    if (isGuard) return null;
 
     // 1. If explicit options are attached
     if (m.options && m.options.length > 0) {
@@ -987,8 +1308,41 @@ function ChatContent() {
             });
 
             setPendingRequests(waitingForMe);
+            const currentPendingIds = new Set(waitingForMe.map((r) => r.id));
 
             if (isPolling) {
+              const newlyArrived = waitingForMe.filter((r) => !prevPendingIdsRef.current.has(r.id));
+              if (newlyArrived.length > 0) {
+                playNotificationSound();
+                newlyArrived.forEach((req) => {
+                  sendSystemNotification({
+                    title: `🔔 มีคำร้องใหม่รอการอนุมัติในขั้นของท่าน`,
+                    body: `${req.student_name} (${req.student_code || 'นศ.'}) ขอออกนอกวิทยาลัย: ${req.reason || req.category}`,
+                    url: '/chat',
+                    tag: `incoming-pending-${req.id}`,
+                  });
+                });
+
+                const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const newBubbles: ChatMessage[] = newlyArrived.map((req) => ({
+                  id: `incoming-alert-${req.id}-${Date.now()}`,
+                  sender: 'bot',
+                  text: `🔔 **มีคำร้องใหม่รอการพิจารณาในขั้นของท่าน!**\nนักเรียน: **${req.student_name}** (${req.student_code || 'นศ.'})\nหมวดหมู่/เหตุผล: ${req.reason || req.category}\nจุดหมาย: ${req.destination_name || 'ไม่ระบุ'} (${req.allowed_start_time || '12:00'} - ${req.allowed_end_time || 'ไม่กลับ'} น.)`,
+                  time: nowTime,
+                  timestamp: Date.now(),
+                  dateStr: todayStr,
+                  requestCard: req,
+                  options: [
+                    { label: '🏠 เมนูหลักอาจารย์', actionValue: 'act_teacher_menu', variant: 'home' },
+                    { label: '📋 ตรวจสอบคิวทั้งหมด', actionValue: 'act_teacher_queue' },
+                  ],
+                }));
+
+                setMessages((prev) => [...prev, ...newBubbles]);
+              }
+
+              prevPendingIdsRef.current = currentPendingIds;
+
               setMessages((prev) => {
                 const hasChange = prev.some((m) => {
                   if (m.requestCard) {
@@ -1008,6 +1362,8 @@ function ChatContent() {
               });
               return;
             }
+
+            prevPendingIdsRef.current = currentPendingIds;
 
             let savedHistory: ChatMessage[] = [];
             const savedHistoryStr = typeof window !== 'undefined' ? localStorage.getItem(`sgp_chat_history_${currentUserId}`) : null;
@@ -1273,11 +1629,17 @@ function ChatContent() {
     isUserNearBottomRef.current = true;
     setTimeout(() => scrollToBottom(true), 50);
 
-    // Approver typed approval words
+    // Approver typed commands & Teacher AI Co-pilot
     if (isApprover) {
       const isApproveCmd = /(อนุมัติ|อนุญาต|ผ่าน|ตกลง|ok|yes)/i.test(userText);
       const isRejectCmd = /(ไม่อนุมัติ|ปฏิเสธ|ไม่อนุญาต|ไม่ให้ไป|ตีกลับ)/i.test(userText);
+      const isQueueCmd = /(คิว|คำร้อง|รออนุมัติ|ตรวจ|รายการ|มีคำร้องไหม)/i.test(userText);
+      const isTrackingCmd = /(พิกัด|นักเรียนอยู่ไหน|ติดตาม|ตามนักเรียน|ใครอยู่ข้างนอก|ดูตำแหน่ง|ออกนอกวิทยาลัย|ข้างนอก|แผนที่)/i.test(userText);
+      const isSummaryCmd = /(สรุป|รายงาน|สถิติ|ยอดวันนี้|มีกี่คน|กี่รายการ)/i.test(userText);
+      const isRulesCmd = /(กฎ|ระเบียบ|5 ขั้นตอน|แนวทาง|เงื่อนไข|ขั้นตอน|สายพาน)/i.test(userText);
+      const isMenuCmd = /(เมนู|หน้าหลัก|ตัวเลือก|เริ่มต้น|ช่วยเหลือ)/i.test(userText);
 
+      // Append teacher's message bubble
       setMessages((prev) => [
         ...prev,
         {
@@ -1285,13 +1647,26 @@ function ChatContent() {
           sender: 'student',
           text: userText,
           time: nowTime,
+          timestamp: Date.now(),
+          dateStr: new Date().toISOString().split('T')[0],
         },
       ]);
 
+      // 1. Approval or Rejection Command
       if (isApproveCmd || isRejectCmd) {
-        const targetReq = pendingRequests[0];
+        const actionType = isApproveCmd ? 'approve' : 'reject';
+        let targetReq = pendingRequests.find((r) => {
+          if (r.student_name && userText.includes(r.student_name)) return true;
+          if (r.request_code && userText.includes(r.request_code)) return true;
+          if (r.student_code && userText.includes(r.student_code)) return true;
+          return false;
+        });
+        if (!targetReq) {
+          targetReq = pendingRequests[0];
+        }
+
         if (targetReq) {
-          await handleTeacherAction(targetReq.id, isApproveCmd ? 'approve' : 'reject');
+          await handleTeacherAction(targetReq.id, actionType);
           return;
         } else {
           setMessages((prev) => [
@@ -1299,14 +1674,75 @@ function ChatContent() {
             {
               id: `bot-no-req-${Date.now()}`,
               sender: 'bot',
-              text: 'ขณะนี้ไม่มีคำร้องที่ค้างรอการอนุมัติในขั้นของท่านแล้วครับ ขอบคุณครับ!',
+              text: 'ขณะนี้ไม่มีคำร้องที่ค้างรอการพิจารณาในขั้นของท่านแล้วครับ ขอบคุณครับ!',
               time: nowTime,
+              timestamp: Date.now() + 50,
+              dateStr: new Date().toISOString().split('T')[0],
               poweredBy: 'Google Gemini AI',
+              options: TEACHER_MENU_OPTIONS,
             },
           ]);
           return;
         }
       }
+
+      // 2. Queue Check Command
+      if (isQueueCmd) {
+        await handleTeacherQueueCheck();
+        return;
+      }
+
+      // 3. Tracking Check Command
+      if (isTrackingCmd) {
+        await handleTeacherTrackingCheck();
+        return;
+      }
+
+      // 4. Summary Check Command
+      if (isSummaryCmd) {
+        await handleTeacherSummaryCheck();
+        return;
+      }
+
+      // 5. Rules Command
+      if (isRulesCmd) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `teacher-rules-bot-${Date.now()}`,
+            sender: 'bot',
+            text: `แนวทางและสายพานการพิจารณาคำร้อง 5 ระดับ (OICEC):\n\n1. ครูผู้สอนประจำวิชา: ตรวจสอบตารางสอนและเวลาเรียน (คาบเช้า 08:00-12:00, คาบบ่าย 13:00-17:00)\n2. ครูที่ปรึกษา: ตรวจสอบพฤติกรรม ยืนยันความจำเป็น และติดต่อผู้ปกครองหากจำเป็น\n3. หัวหน้าแผนกวิชา: ตรวจสอบความถูกต้องของแผนกวิชาพาณิชยกรรม/ธุรกิจดิจิทัล\n4. งานปกครอง: ตรวจสอบประวัติทางวินัยและการแต่งกาย\n5. รองผู้อำนวยการฝ่ายพัฒนากิจการฯ: อนุมัติขั้นสุดท้ายเพื่อส่งสิทธิ์ไปยังไม้กั้น AI ประตู 1\n\n📌 เมื่ออนุมัติครบ 5 ขั้น ไม้กั้นจะเปิดให้สแกนออกอัตโนมัติ และระบบจะเริ่มติดตาม GPS แบบเรียลไทม์`,
+            time: nowTime,
+            timestamp: Date.now() + 50,
+            dateStr: new Date().toISOString().split('T')[0],
+            poweredBy: 'Google Gemini AI',
+            options: TEACHER_MENU_OPTIONS,
+          },
+        ]);
+        return;
+      }
+
+      // 6. Menu Command
+      if (isMenuCmd) {
+        handleReturnToMainMenu();
+        return;
+      }
+
+      // 7. General AI Co-pilot for Teachers (Answers politely and presents teacher options)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `bot-teacher-qa-${Date.now()}`,
+          sender: 'bot',
+          text: `สวัสดีครับคุณครู (${getRoleTitle(user?.role)}) ผมคือน้องเกต AI ผู้ช่วยประจำสายพานการพิจารณาคำร้อง 🏫\n\nท่านสามารถสั่งการด้วยการพิมพ์ เช่น:\n• "อนุมัติ" หรือ "ไม่อนุมัติ"\n• "ตรวจคิว" เพื่อดูรายการคำร้องที่รอการอนุมัติ\n• "ติดตามนักเรียน" หรือ "นักเรียนอยู่ไหน" เพื่อตรวจพิกัด GPS สด\n• "สรุปวันนี้" เพื่อดูภาพรวมสถิติการออกนอกวิทยาลัย\n\nหรือแตะเลือกปุ่มด่วนด้านล่างได้ทันทีครับ:`,
+          time: nowTime,
+          timestamp: Date.now() + 50,
+          dateStr: new Date().toISOString().split('T')[0],
+          poweredBy: 'Google Gemini AI',
+          options: TEACHER_MENU_OPTIONS,
+        },
+      ]);
+      return;
     }
 
     // Student Chat / General AI QA
